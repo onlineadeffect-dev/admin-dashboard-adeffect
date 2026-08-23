@@ -1,0 +1,404 @@
+.quotations-page {
+  font-family: 'Inter', sans-serif;
+  padding: 24px 28px 100px;
+  background-color: #ffffff;
+  min-height: 100%;
+}
+
+.page-title {
+  font-size: 32px;
+  font-weight: 800;
+  color: #000000;
+  margin-bottom: 24px;
+  text-transform: uppercase;
+  letter-spacing: -0.5px;
+}
+
+.search-bar-container {
+  position: relative;
+  width: 100%;
+  margin-bottom: 32px;
+}
+
+.search-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 20px;
+  color: #777777;
+}
+
+.search-input {
+  width: 100%;
+  padding: 16px 16px 16px 48px;
+  font-size: 15px;
+  background-color: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  outline: none;
+  font-family: 'Inter', sans-serif;
+  color: #18181b;
+  box-sizing: border-box;
+}
+
+.search-input::placeholder {
+  color: #999999;
+}
+
+.search-input:focus {
+  border-color: #000000;
+  background-color: #ffffff;
+}
+
+.quotations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.quotation-card {
+  border: 1.5px solid #e0e0e0;
+  border-radius: 12px;
+  padding: 20px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.quotation-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.quotation-ref {
+  font-size: 18px;
+  font-weight: 800;
+  color: #000;
+  margin: 0;
+}
+
+.quotation-date {
+  font-size: 12px;
+  color: #888;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.quotation-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detail-label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #888;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.detail-value {
+  font-size: 14px;
+  color: #333;
+  font-weight: 500;
+}
+
+.quotation-total {
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.quotation-total-amount {
+  font-size: 18px;
+  font-weight: 800;
+  color: #de310a;
+}
+
+.quotation-booking-id {
+  font-size: 11px;
+  color: #aaa;
+  word-break: break-all;
+}
+
+.create-quotation-btn {
+  position: fixed;
+  bottom: 32px;
+  right: 36px;
+  background: #de310a;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 14px 22px;
+  border-radius: 12px;
+  border: none;
+  box-shadow: 0 8px 20px rgba(222, 49, 10, 0.28);
+  z-index: 20;
+  cursor: pointer;
+}
+
+.create-quotation-btn:hover {
+  background: #c42b08;
+}
+
+.create-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.back-btn {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-weight: 700;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+}
+
+.back-btn:hover {
+  background: #ebebeb;
+}
+
+.create-header .page-title {
+  margin-bottom: 0;
+}
+
+.quotation-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 20px;
+  max-width: 920px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.form-field label {
+  font-size: 12px;
+  font-weight: 800;
+  color: #111;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.form-field input,
+.form-field select {
+  padding: 12px 14px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #f4f4f5;
+  font-size: 14px;
+  outline: none;
+  font-family: inherit;
+  color: #18181b;
+}
+
+.form-field input:focus,
+.form-field select:focus {
+  border-color: #000;
+  background: #fff;
+}
+
+.form-field input:disabled {
+  color: #777;
+  cursor: not-allowed;
+}
+
+.form-hint {
+  font-size: 12px;
+  color: #777;
+}
+
+.combobox-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 30;
+}
+
+.combobox-option {
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #222;
+}
+
+.combobox-option:hover {
+  background: #fff1ed;
+  color: #de310a;
+}
+
+.combobox-empty {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: #888;
+}
+
+.form-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+.submit-quotation-btn {
+  background: #de310a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 14px;
+  text-transform: uppercase;
+  padding: 14px 28px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+}
+
+.submit-quotation-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.notification-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.notification-banner.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.notification-banner.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.notification-close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  color: inherit;
+}
+
+.loading-state,
+.empty-state {
+  text-align: center;
+  color: #666;
+  padding: 48px 0;
+  font-size: 16px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+.modal-content {
+  background: #fff;
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 460px;
+  width: 90%;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.modal-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: #000;
+  margin: 0;
+}
+
+.modal-description {
+  font-size: 14px;
+  color: #4b5563;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.modal-btn {
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+}
+
+.modal-btn.primary {
+  background: #de310a;
+  color: #fff;
+}
+
+.modal-btn.primary:hover:not(:disabled) {
+  background: #c42b08;
+}
+
+.modal-btn.secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (max-width: 720px) {
+  .quotation-form {
+    grid-template-columns: 1fr;
+  }
+}
