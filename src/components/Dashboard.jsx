@@ -9,6 +9,9 @@ import BookingRequests from '../pages/BookingRequests';
 import Quotations from '../pages/Quotations';
 import Billboards from '../pages/Billboards'; 
 
+import Availability from '../pages/Availability';
+import Careers from '../pages/Careers';
+
 const Dashboard = ({ onLogout }) => {
   const [activePage, setActivePage] = useState('dashboard');
   const [quotationPrefill, setQuotationPrefill] = useState(null);
@@ -26,18 +29,22 @@ const Dashboard = ({ onLogout }) => {
 
   const navItems = [
     { id: 'dashboard', label: 'DASHBOARD' },
+    { id: 'availability', label: 'AVAILABILITY' },
     { id: 'billboards', label: 'BILLBOARDS' },
     { id: 'clients', label: 'CLIENTS/USERS' },
     { id: 'bookings', label: 'BOOKINGS' },
     { id: 'booking-requests', label: 'BOOKING REQUESTS' },
     { id: 'quotations', label: 'QUOTATIONS' },
     { id: 'account-requests', label: 'ACCOUNT REQUESTS' },
+    { id: 'careers', label: 'CAREERS' },
   ];
 
   const renderContent = () => {
     switch (activePage) {
       case 'dashboard':
         return <DashboardHome />;
+      case 'availability':
+        return <Availability />;
       case 'clients':
         return <ClientsUsers />;
       case 'bookings':
@@ -61,15 +68,16 @@ const Dashboard = ({ onLogout }) => {
         );
       case 'account-requests':
         return <AccountRequests />;
+      case 'billboards':
+        return <Billboards />;
+      case 'careers':
+        return <Careers />;
       default:
         return (
           <div className="coming-soon">
             <h2>Coming Soon</h2>
           </div>
         );
-
-      case 'billboards':
-        return <Billboards />;
     }
   };
 

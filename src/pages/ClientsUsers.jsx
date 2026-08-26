@@ -14,7 +14,7 @@ const ClientsUsers = () => {
         setLoading(true);
         const [usersResponse, bookingsResponse] = await Promise.all([
           supabase.from('users').select('*'),
-          supabase.from('bookings').select('client_id')
+          supabase.from('bookings').select('user_id')
         ]);
 
         if (usersResponse.error) throw usersResponse.error;

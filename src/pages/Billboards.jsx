@@ -26,6 +26,7 @@ const INITIAL_FORM = {
   image_url: '',
   description: '',
   is_available: true,
+  price: ''
 };
 
 const Billboards = () => {
@@ -80,8 +81,8 @@ const Billboards = () => {
         idStr.includes(q) ||
         locStr.includes(q) ||
         sizeStr.includes(q) ||
-        structureStr.includes(q) ||
-        mediaTypeStr.includes(q)
+        structureStr.includes(q) 
+        //mediaTypeStr.includes(q)
       );
     });
   }, [billboards, searchQuery]);
@@ -113,6 +114,7 @@ const Billboards = () => {
         image_url: formData.image_url.trim() || null,
         description: formData.description.trim() || null,
         is_available: formData.is_available,
+        price: formData.price ? parseFloat(formData.price) : null,
       };
 
       if (formData.billboard_id.trim()) {
@@ -236,16 +238,11 @@ const Billboards = () => {
                       <span className="detail-value">{billboard.structure}</span>
                     </div>
                   )}
-                  {billboard.media_type && (
-                    <div className="detail-row">
-                      <span className="detail-label">Type:</span>
-                      <span className="detail-value">{billboard.media_type}</span>
-                    </div>
-                  )}
-                  {billboard.daily_rate && (
+                  
+                  {billboard.price && (
                     <div className="detail-row">
                       <span className="detail-label">Price:</span>
-                      <span className="detail-value rate">${billboard.daily_rate}</span>
+                      <span className="detail-value rate">${billboard.price}</span>
                     </div>
                   )}
                 </div>
@@ -333,9 +330,9 @@ const Billboards = () => {
                   <input
                     type="number"
                     step="0.01"
-                    name="daily_rate"
+                    name="price"
                     placeholder="e.g. 150"
-                    value={formData.daily_rate}
+                    value={formData.price}
                     onChange={handleInputChange}
                   />
                 </div>
