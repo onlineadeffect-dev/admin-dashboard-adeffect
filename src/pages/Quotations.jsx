@@ -290,7 +290,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
       .slice(0, 12)
       .map((booking) => {
         const client = booking.client_id || booking.user_id;
-        const business = userMap[client]?.business_name || 'Unknown business';
+        const business = booking.is_offline_booking == false ? userMap[client]?.business_name || 'Unknown business' : booking.offline_business_name;
         return {
           value: booking.booking_id,
           label: `${booking.billboard_id || 'No ID'} — ${business}`,
