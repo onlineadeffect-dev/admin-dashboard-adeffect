@@ -35,30 +35,32 @@ async function checkAuth() {
 }
 
 // 2. Handle Login Submission
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const inputEmail = emailInput.value.trim().toLowerCase();
+if (loginForm) {
+  loginForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const inputEmail = emailInput.value.trim().toLowerCase();
+    const passwordInput = document.getElementById('password');
+    const inputPassword = passwordInput ? passwordInput.value : '';
 
-  // Client-side guard check against the .env string
-  if (inputEmail !== allowedAdminEmail.toLowerCase()) {
-    showMessage('Access denied: You are not authorized to log into this dashboard.', 'error');
-    return;
-  }
+    const targetEmail = (allowedAdminEmail || 'onlineadeffect@gmail.com').toLowerCase();
 
-  // Request magic link from Supabase
-  const { error } = await supabase.auth.signInWithOtp({
-    email: inputEmail,
-    options: {
-      emailRedirectTo: window.location.origin, // Redirects back to your website root
-    },
+    if (inputEmail !== targetEmail) {
+      showMessage('Access denied: You are not authorized to log into this dashboard.', 'error');
+      return;
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({
+      email: inputEmail,
+      password: inputPassword,
+    });
+
+    if (error) {
+      showMessage(error.message, 'error');
+    } else {
+      showMessage('Login successful!', 'success');
+    }
   });
-
-  if (error) {
-    showMessage(error.message, 'error');
-  } else {
-    showMessage('Check your email for the magic login link!', 'success');
-  }
-});
+}
 
 // 3. Handle Logout
 logoutBtn.addEventListener('click', async () => {

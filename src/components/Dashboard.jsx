@@ -35,7 +35,7 @@ const Dashboard = ({ onLogout }) => {
     { id: 'bookings', label: 'BOOKINGS' },
     { id: 'booking-requests', label: 'BOOKING REQUESTS' },
     { id: 'quotations', label: 'QUOTATIONS' },
-    { id: 'account-requests', label: 'ACCOUNT REQUESTS' },
+    //{ id: 'account-requests', label: 'ACCOUNT REQUESTS' },
     { id: 'careers', label: 'CAREERS' },
   ];
 

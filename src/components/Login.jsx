@@ -4,6 +4,7 @@ import './Login.css';
 
 const Login = () => {
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -13,23 +14,33 @@ const Login = () => {
     setError('');
     setMessage('');
 
-    if (email.trim().toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-      setError('Access denied: Unauthorized email address.');
+    const targetEmail = (ADMIN_EMAIL || 'onlineadeffect@gmail.com').toLowerCase();
+
+    if (email.trim().toLowerCase() !== targetEmail) {
+      setError('Access denied: Only onlineadeffect@gmail.com is authorized to log in.');
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter your password.');
       return;
     }
 
     setLoading(true);
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: window.location.origin
-        }
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
       });
 
       if (error) throw error;
       
-      setMessage('Magic link sent! Check your email to log in.');
+      if (data?.user?.email?.toLowerCase() !== targetEmail) {
+        await supabase.auth.signOut();
+        setError('Access denied: Only onlineadeffect@gmail.com is authorized to log in.');
+      } else {
+        setMessage('Login successful!');
+      }
     } catch (err) {
       setError(err.message || 'An error occurred during login.');
     } finally {
@@ -43,19 +54,33 @@ const Login = () => {
         <h2 className="login-title">Admin Login</h2>
         <form onSubmit={handleLogin} className="login-form">
           <div className="form-group">
+            <label htmlFor="email">Email Address</label>
             <input
               id="email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@example.com"
+              placeholder="onlineadeffect@gmail.com"
               required
               disabled={loading}
               aria-label="Email Address"
             />
           </div>
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              disabled={loading}
+              aria-label="Password"
+            />
+          </div>
           <button type="submit" className="login-button" disabled={loading}>
-            {loading ? 'Sending...' : 'Send Magic Link'}
+            {loading ? 'Logging in...' : 'Log In'}
           </button>
         </form>
         {error && <p className="login-error">{error}</p>}

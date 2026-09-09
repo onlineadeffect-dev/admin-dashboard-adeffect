@@ -9,9 +9,11 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check current session on mount
+    // Listen for auth state changes
+    const adminEmail = (ADMIN_EMAIL || 'onlineadeffect@gmail.com').toLowerCase();
+
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && session.user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      if (session && session.user?.email?.toLowerCase() === adminEmail) {
         setSession(session);
       } else if (session) {
         // Unauthorized user — sign them out
@@ -20,9 +22,8 @@ function App() {
       setLoading(false);
     });
 
-    // Listen for auth state changes (magic link callback)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session && session.user.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+      if (session && session.user?.email?.toLowerCase() === adminEmail) {
         setSession(session);
       } else if (session) {
         supabase.auth.signOut();

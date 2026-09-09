@@ -4,7 +4,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
+export const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL || 'onlineadeffect@gmail.com';
 
 // Fail gracefully with a console error instead of throwing an unhandled top-level exception
 if (!supabaseUrl || !supabaseAnonKey) {
