@@ -263,7 +263,8 @@ const Availability = () => {
         end_time: formData.end_time,
         offers: formData.offers || null,
         is_online_booking: formData.is_online_booking, // false for offline bookings
-        is_active: formData.is_active
+        is_active: formData.is_active,
+        offline_business_name: formData.offline_business_name
       };
 
       if (selectedBooking) {
@@ -478,7 +479,7 @@ const Availability = () => {
                                 const booking = getBookingForMonth(boardIdStr, mIdx, selectedYear);
                                 const isBooked = Boolean(booking);
                                 const clientName = isBooked
-                                  ? (userMap[booking.user_id] || booking.offline_business_name || 'Booked Client')
+                                  ? booking.offline_business_name || 'Booked Client'
                                   : null;
 
                                 return (

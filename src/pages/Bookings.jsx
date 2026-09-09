@@ -51,7 +51,7 @@ const Bookings = () => {
         // Combine data
         const enrichedBookings = bookingsData.map(booking => ({
           ...booking,
-          business_name: userMap[booking.user_id] || 'Unknown Business'
+          business_name: booking.is_offline_booking == false ? userMap[booking.user_id] || 'Unknown Business' : booking.offline_business_name
         }));
 
         setBookings(enrichedBookings);
