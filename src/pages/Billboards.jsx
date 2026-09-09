@@ -16,12 +16,28 @@ const PlusIcon = () => (
   </svg>
 );
 
+const EditIcon = () => (
+  <svg className="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+  </svg>
+);
+
+const TrashIcon = () => (
+  <svg className="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6"></polyline>
+    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+    <line x1="10" y1="11" x2="10" y2="17"></line>
+    <line x1="14" y1="11" x2="14" y2="17"></line>
+  </svg>
+);
+
 const INITIAL_FORM = {
   billboard_id: '',
   location: '',
   size: '',
   structure: '',
-  //media_type: '',
+  media_type: '',
   daily_rate: '',
   image_url: '',
   description: '',
@@ -34,8 +50,11 @@ const Billboards = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingBillboard, setEditingBillboard] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [notification, setNotification] = useState(null);
 
   useEffect(() => {
@@ -75,14 +94,12 @@ const Billboards = () => {
       const locStr = (item.location || '').toLowerCase();
       const sizeStr = (item.size || '').toLowerCase();
       const structureStr = (item.structure || '').toLowerCase();
-      //const mediaTypeStr = (item.media_type || '').toLowerCase();
 
       return (
         idStr.includes(q) ||
         locStr.includes(q) ||
         sizeStr.includes(q) ||
-        structureStr.includes(q) 
-        //mediaTypeStr.includes(q)
+        structureStr.includes(q)
       );
     });
   }, [billboards, searchQuery]);
@@ -95,7 +112,30 @@ const Billboards = () => {
     }));
   };
 
-  const handleAddSubmit = async (e) => {
+  const handleOpenAddModal = () => {
+    setEditingBillboard(null);
+    setFormData(INITIAL_FORM);
+    setIsModalOpen(true);
+  };
+
+  const handleOpenEditModal = (billboard) => {
+    setEditingBillboard(billboard);
+    setFormData({
+      billboard_id: billboard.billboard_id || '',
+      location: billboard.location || '',
+      size: billboard.size || '',
+      structure: billboard.structure || '',
+      media_type: billboard.media_type || '',
+      daily_rate: billboard.daily_rate ? billboard.daily_rate.toString() : '',
+      image_url: billboard.image_url || '',
+      description: billboard.description || '',
+      is_available: billboard.is_available !== false,
+      price: billboard.price ? billboard.price.toString() : ''
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
 
     if (!formData.location.trim()) {
@@ -109,7 +149,7 @@ const Billboards = () => {
         location: formData.location.trim(),
         size: formData.size.trim() || null,
         structure: formData.structure.trim() || null,
-        //media_type: formData.media_type.trim() || null,
+        media_type: formData.media_type ? formData.media_type.trim() : null,
         daily_rate: formData.daily_rate ? parseFloat(formData.daily_rate) : null,
         image_url: formData.image_url.trim() || null,
         description: formData.description.trim() || null,
@@ -121,22 +161,63 @@ const Billboards = () => {
         payload.billboard_id = formData.billboard_id.trim();
       }
 
-      const { data, error } = await supabase
-        .from('billboards')
-        .insert([payload])
-        .select();
+      if (editingBillboard) {
+        const targetKey = editingBillboard.id ? 'id' : 'billboard_id';
+        const targetVal = editingBillboard.id || editingBillboard.billboard_id;
 
-      if (error) throw error;
+        const { error } = await supabase
+          .from('billboards')
+          .update(payload)
+          .eq(targetKey, targetVal);
 
-      showNotification('success', 'Billboard added successfully!');
+        if (error) throw error;
+
+        showNotification('success', 'Billboard updated successfully!');
+      } else {
+        const { error } = await supabase
+          .from('billboards')
+          .insert([payload]);
+
+        if (error) throw error;
+
+        showNotification('success', 'Billboard added successfully!');
+      }
+
       setFormData(INITIAL_FORM);
+      setEditingBillboard(null);
       setIsModalOpen(false);
       fetchBillboards();
     } catch (error) {
-      console.error('Error adding billboard:', error);
-      showNotification('error', `Failed to add billboard: ${error.message}`);
+      console.error('Error saving billboard:', error);
+      showNotification('error', `Failed to save billboard: ${error.message}`);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
+
+    try {
+      setDeleting(true);
+      const targetKey = deleteTarget.id ? 'id' : 'billboard_id';
+      const targetVal = deleteTarget.id || deleteTarget.billboard_id;
+
+      const { error } = await supabase
+        .from('billboards')
+        .delete()
+        .eq(targetKey, targetVal);
+
+      if (error) throw error;
+
+      showNotification('success', 'Billboard deleted successfully!');
+      setDeleteTarget(null);
+      fetchBillboards();
+    } catch (error) {
+      console.error('Error deleting billboard:', error);
+      showNotification('error', `Failed to delete billboard: ${error.message}`);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -144,7 +225,7 @@ const Billboards = () => {
     <div className="billboards-container">
       <div className="billboards-header">
         <h1 className="page-title">BILLBOARDS</h1>
-        <button className="add-billboard-btn" onClick={() => setIsModalOpen(true)}>
+        <button className="add-billboard-btn" onClick={handleOpenAddModal}>
           <PlusIcon />
           <span>ADD NEW BILLBOARD</span>
         </button>
@@ -250,24 +331,41 @@ const Billboards = () => {
                 {billboard.description && (
                   <p className="billboard-description">{billboard.description}</p>
                 )}
+
+                <div className="billboard-card-actions">
+                  <button
+                    className="card-btn edit-btn"
+                    onClick={() => handleOpenEditModal(billboard)}
+                    title="Edit Billboard"
+                  >
+                    <EditIcon /> Edit
+                  </button>
+                  <button
+                    className="card-btn delete-btn"
+                    onClick={() => setDeleteTarget(billboard)}
+                    title="Delete Billboard"
+                  >
+                    <TrashIcon /> Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Add New Billboard Modal */}
+      {/* Add / Edit Billboard Modal */}
       {isModalOpen && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>ADD NEW BILLBOARD</h2>
+              <h2>{editingBillboard ? 'EDIT BILLBOARD' : 'ADD NEW BILLBOARD'}</h2>
               <button className="modal-close" onClick={() => setIsModalOpen(false)}>
                 &times;
               </button>
             </div>
 
-            <form onSubmit={handleAddSubmit} className="billboard-form">
+            <form onSubmit={handleFormSubmit} className="billboard-form">
               <div className="form-group">
                 <label>Billboard ID (Optional)</label>
                 <input
@@ -326,7 +424,7 @@ const Billboards = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Price: </label>
+                  <label>Price ($)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -381,10 +479,52 @@ const Billboards = () => {
                   Cancel
                 </button>
                 <button type="submit" className="btn-primary" disabled={submitting}>
-                  {submitting ? 'Adding...' : 'Save Billboard'}
+                  {submitting
+                    ? editingBillboard ? 'Saving...' : 'Adding...'
+                    : editingBillboard ? 'Update Billboard' : 'Save Billboard'}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="modal-content delete-modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>DELETE BILLBOARD</h2>
+              <button className="modal-close" onClick={() => setDeleteTarget(null)}>
+                &times;
+              </button>
+            </div>
+            <div className="delete-modal-body">
+              <p>Are you sure you want to delete this billboard?</p>
+              <div className="delete-target-info">
+                <strong>{deleteTarget.location || 'Unspecified Location'}</strong>
+                <span>(ID: {deleteTarget.billboard_id || deleteTarget.id || 'N/A'})</span>
+              </div>
+              <p className="delete-warning">This action cannot be undone.</p>
+            </div>
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+              >
+                {deleting ? 'Deleting...' : 'Delete Billboard'}
+              </button>
+            </div>
           </div>
         </div>
       )}
