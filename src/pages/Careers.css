@@ -479,3 +479,50 @@
   color: #b91c1c;
   border: 1px solid #fecaca;
 }
+
+@media (max-width: 768px) {
+  .careers-container {
+    padding: 12px;
+  }
+
+  .careers-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .add-career-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .tabs-header {
+    flex-wrap: wrap;
+  }
+
+  .controls-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .form-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .applicant-card {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .applicant-actions {
+    flex-direction: row;
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

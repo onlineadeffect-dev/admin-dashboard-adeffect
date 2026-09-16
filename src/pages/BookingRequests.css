@@ -271,3 +271,33 @@
   font-size: 16px;
   font-weight: 500;
 }
+
+@media (max-width: 768px) {
+  .booking-requests-container {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+    margin-bottom: 16px;
+  }
+
+  .requests-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .card-actions {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .action-btn {
+    width: 100%;
+  }
+
+  .detail-row {
+    flex-direction: column;
+    gap: 2px;
+  }
+}

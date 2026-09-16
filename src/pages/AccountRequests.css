@@ -313,3 +313,36 @@
 .cancel-btn:hover:not(:disabled) {
   background-color: #e5e7eb;
 }
+
+@media (max-width: 768px) {
+  .account-requests-container {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+    margin-bottom: 16px;
+  }
+
+  .request-card {
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .card-right {
+    align-items: flex-start;
+    border-top: 1px dashed #e0e0e0;
+    padding-top: 12px;
+    width: 100%;
+  }
+
+  .card-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .action-btn {
+    width: 100%;
+  }
+}

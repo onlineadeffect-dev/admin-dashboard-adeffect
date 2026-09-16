@@ -17,7 +17,7 @@ const Login = () => {
     const targetEmail = (ADMIN_EMAIL || 'onlineadeffect@gmail.com').toLowerCase();
 
     if (email.trim().toLowerCase() !== targetEmail) {
-      setError('Access denied: Only onlineadeffect@gmail.com is authorized to log in.');
+      setError('Access denied');
       return;
     }
 
@@ -37,7 +37,7 @@ const Login = () => {
       
       if (data?.user?.email?.toLowerCase() !== targetEmail) {
         await supabase.auth.signOut();
-        setError('Access denied: Only onlineadeffect@gmail.com is authorized to log in.');
+        setError('Access denied');
       } else {
         setMessage('Login successful!');
       }
@@ -60,7 +60,7 @@ const Login = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="onlineadeffect@gmail.com"
+              placeholder="email"
               required
               disabled={loading}
               aria-label="Email Address"

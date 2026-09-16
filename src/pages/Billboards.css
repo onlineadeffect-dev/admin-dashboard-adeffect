@@ -505,3 +505,41 @@
   font-weight: 600;
   margin: 8px 0 0 0;
 }
+
+@media (max-width: 768px) {
+  .billboards-container {
+    padding: 16px;
+  }
+
+  .billboards-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .add-billboard-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .billboards-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .modal-actions {
+    flex-direction: column;
+  }
+
+  .modal-actions button {
+    width: 100%;
+  }
+}

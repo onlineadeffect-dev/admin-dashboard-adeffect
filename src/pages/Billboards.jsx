@@ -57,6 +57,8 @@ const Billboards = () => {
   const [deleting, setDeleting] = useState(false);
   const [notification, setNotification] = useState(null);
 
+  const [bookings, setBookings] = useState([]);
+
   useEffect(() => {
     fetchBillboards();
   }, []);
@@ -64,13 +66,16 @@ const Billboards = () => {
   const fetchBillboards = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
-        .from('billboards')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const [billboardsRes, bookingsRes] = await Promise.all([
+        supabase.from('billboards').select('*').order('created_at', { ascending: false }),
+        supabase.from('bookings').select('*')
+      ]);
 
-      if (error) throw error;
-      setBillboards(data || []);
+      if (billboardsRes.error) throw billboardsRes.error;
+      if (bookingsRes.error) throw bookingsRes.error;
+
+      setBillboards(billboardsRes.data || []);
+      setBookings(bookingsRes.data || []);
     } catch (error) {
       console.error('Error fetching billboards:', error.message);
       showNotification('error', `Failed to load billboards: ${error.message}`);
@@ -221,6 +226,30 @@ const Billboards = () => {
     }
   };
 
+  const isBillboardCurrentlyBooked = (billboard) => {
+    const boardId = (billboard.billboard_id || billboard.id || '').toString();
+    const now = new Date();
+
+    return bookings.some((b) => {
+      const bBoardId = (b.billboard_id || '').toString();
+      if (bBoardId !== boardId) return false;
+
+      // Check if booking is marked active (if specified)
+      if (b.is_active === false) return false;
+
+      // Check date range if start_time/end_time exist
+      if (b.start_time && b.end_time) {
+        const start = new Date(b.start_time);
+        const end = new Date(b.end_time);
+        // Normalize end to end of day if only date is provided
+        end.setHours(23, 59, 59, 999);
+        return now >= start && now <= end;
+      }
+
+      return true;
+    });
+  };
+
   return (
     <div className="billboards-container">
       <div className="billboards-header">
@@ -263,94 +292,99 @@ const Billboards = () => {
         </div>
       ) : (
         <div className="billboards-grid">
-          {filteredBillboards.map((billboard) => (
-            <div className="billboard-card" key={billboard.billboard_id || billboard.id}>
-              <div className="billboard-image-container">
-                {billboard.image_url ? (
-                  <img
-                    src={billboard.image_url}
-                    alt={billboard.location || 'Billboard'}
-                    className="billboard-image"
-                    onError={(e) => {
-                      e.target.onerror = null;
-                      e.target.style.display = 'none';
-                      if (e.target.nextSibling) {
-                        e.target.nextSibling.style.display = 'flex';
-                      }
-                    }}
-                  />
-                ) : null}
-                <div
-                  className="billboard-image-fallback"
-                  style={{ display: billboard.image_url ? 'none' : 'flex' }}
-                >
-                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="1.5">
-                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-                    <line x1="8" y1="21" x2="16" y2="21" />
-                    <line x1="12" y1="17" x2="12" y2="21" />
-                  </svg>
-                  <span>No Image</span>
-                </div>
-                <span
-                  className={`status-tag ${
-                    billboard.is_available === false ? 'unavailable' : 'available'
-                  }`}
-                >
-                  {billboard.is_available === false ? 'Booked / Unavailable' : 'Available'}
-                </span>
-              </div>
+          {filteredBillboards.map((billboard) => {
+            const isBooked = isBillboardCurrentlyBooked(billboard);
+            const isAvailable = billboard.is_available !== false && !isBooked;
 
-              <div className="billboard-card-body">
-                <div className="billboard-id-badge">
-                  ID: {billboard.billboard_id || billboard.id || 'N/A'}
-                </div>
-                <h3 className="billboard-location">{billboard.location || 'Unspecified Location'}</h3>
-
-                <div className="billboard-details">
-                  {billboard.size && (
-                    <div className="detail-row">
-                      <span className="detail-label">Size:</span>
-                      <span className="detail-value">{billboard.size}</span>
-                    </div>
-                  )}
-                  {billboard.structure && (
-                    <div className="detail-row">
-                      <span className="detail-label">Structure:</span>
-                      <span className="detail-value">{billboard.structure}</span>
-                    </div>
-                  )}
-                  
-                  {billboard.price && (
-                    <div className="detail-row">
-                      <span className="detail-label">Price:</span>
-                      <span className="detail-value rate">${billboard.price}</span>
-                    </div>
-                  )}
-                </div>
-
-                {billboard.description && (
-                  <p className="billboard-description">{billboard.description}</p>
-                )}
-
-                <div className="billboard-card-actions">
-                  <button
-                    className="card-btn edit-btn"
-                    onClick={() => handleOpenEditModal(billboard)}
-                    title="Edit Billboard"
+            return (
+              <div className="billboard-card" key={billboard.billboard_id || billboard.id}>
+                <div className="billboard-image-container">
+                  {billboard.image_url ? (
+                    <img
+                      src={billboard.image_url}
+                      alt={billboard.location || 'Billboard'}
+                      className="billboard-image"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.style.display = 'none';
+                        if (e.target.nextSibling) {
+                          e.target.nextSibling.style.display = 'flex';
+                        }
+                      }}
+                    />
+                  ) : null}
+                  <div
+                    className="billboard-image-fallback"
+                    style={{ display: billboard.image_url ? 'none' : 'flex' }}
                   >
-                    <EditIcon /> Edit
-                  </button>
-                  <button
-                    className="card-btn delete-btn"
-                    onClick={() => setDeleteTarget(billboard)}
-                    title="Delete Billboard"
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#aaa" strokeWidth="1.5">
+                      <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                      <line x1="8" y1="21" x2="16" y2="21" />
+                      <line x1="12" y1="17" x2="12" y2="21" />
+                    </svg>
+                    <span>No Image</span>
+                  </div>
+                  <span
+                    className={`status-tag ${
+                      isAvailable ? 'available' : 'unavailable'
+                    }`}
                   >
-                    <TrashIcon /> Delete
-                  </button>
+                    {isAvailable ? 'Available' : 'Booked / Unavailable'}
+                  </span>
+                </div>
+
+                <div className="billboard-card-body">
+                  <div className="billboard-id-badge">
+                    ID: {billboard.billboard_id || billboard.id || 'N/A'}
+                  </div>
+                  <h3 className="billboard-location">{billboard.location || 'Unspecified Location'}</h3>
+
+                  <div className="billboard-details">
+                    {billboard.size && (
+                      <div className="detail-row">
+                        <span className="detail-label">Size:</span>
+                        <span className="detail-value">{billboard.size}</span>
+                      </div>
+                    )}
+                    {billboard.structure && (
+                      <div className="detail-row">
+                        <span className="detail-label">Structure:</span>
+                        <span className="detail-value">{billboard.structure}</span>
+                      </div>
+                    )}
+                    
+                    {billboard.price && (
+                      <div className="detail-row">
+                        <span className="detail-label">Price:</span>
+                        <span className="detail-value rate">${billboard.price}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {billboard.description && (
+                    <p className="billboard-description">{billboard.description}</p>
+                  )}
+
+                  <div className="billboard-card-actions">
+                    <button
+                      className="card-btn edit-btn"
+                      onClick={() => handleOpenEditModal(billboard)}
+                      title="Edit Billboard"
+                    >
+                      <EditIcon /> Edit
+                    </button>
+                    <button
+                      className="card-btn delete-btn"
+                      onClick={() => setDeleteTarget(billboard)}
+                      title="Delete Billboard"
+                    >
+                      <TrashIcon /> Delete
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

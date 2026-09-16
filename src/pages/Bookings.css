@@ -220,3 +220,30 @@
   color: #aaa;
   margin-top: 8px;
 }
+
+@media (max-width: 768px) {
+  .bookings-page {
+    padding: 16px;
+  }
+
+  .page-title {
+    font-size: 24px;
+    margin-bottom: 16px;
+  }
+
+  .search-filter-container {
+    flex-direction: row;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .bookings-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .booking-dates {
+    flex-direction: column;
+    gap: 4px;
+  }
+}

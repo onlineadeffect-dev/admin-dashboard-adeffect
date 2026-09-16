@@ -81,9 +81,44 @@ const Dashboard = ({ onLogout }) => {
     }
   };
 
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
   return (
     <div className="dashboard-layout">
-      <div className="dashboard-sidebar">
+      {/* Mobile Header Bar */}
+      <div className="mobile-header">
+        <button
+          className="mobile-menu-toggle"
+          onClick={() => setMobileNavOpen(!mobileNavOpen)}
+          aria-label="Toggle navigation menu"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            {mobileNavOpen ? (
+              <>
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </>
+            ) : (
+              <>
+                <line x1="3" y1="12" x2="21" y2="12" />
+                <line x1="3" y1="6" x2="21" y2="6" />
+                <line x1="3" y1="18" x2="21" y2="18" />
+              </>
+            )}
+          </svg>
+        </button>
+        <span className="mobile-header-title">AD EFFECT</span>
+      </div>
+
+      {/* Backdrop for Mobile Nav */}
+      {mobileNavOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+
+      <div className={`dashboard-sidebar ${mobileNavOpen ? 'mobile-open' : ''}`}>
         <div className="sidebar-top">
           <div className="avatar-circle">
             <svg
@@ -107,7 +142,10 @@ const Dashboard = ({ onLogout }) => {
             <button
               key={item.id}
               className={`nav-item ${activePage === item.id ? 'active' : ''}`}
-              onClick={() => setActivePage(item.id)}
+              onClick={() => {
+                setActivePage(item.id);
+                setMobileNavOpen(false);
+              }}
             >
               {item.label}
             </button>

@@ -121,3 +121,38 @@
   color: #666666;
   margin: 0;
 }
+
+@media (max-width: 768px) {
+  .dashboard-home {
+    padding: 16px;
+  }
+
+  .dashboard-title {
+    font-size: 24px;
+    margin-bottom: 20px;
+  }
+
+  .stats-row {
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .stat-card {
+    padding: 18px;
+  }
+
+  .stat-value {
+    font-size: 26px;
+  }
+
+  .section-title {
+    font-size: 20px;
+    margin-bottom: 16px;
+  }
+
+  .billboards-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
