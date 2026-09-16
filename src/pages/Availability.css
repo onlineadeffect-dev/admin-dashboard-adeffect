@@ -434,6 +434,7 @@
   width: 100%;
   max-width: 540px;
   max-height: 85vh;
+  max-height: 85dvh;
   display: flex;
   flex-direction: column;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
@@ -483,6 +484,7 @@
   flex-direction: column;
   gap: 16px;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   flex: 1;
 }
 
@@ -632,6 +634,16 @@
 
   .modal-overlay {
     padding: 12px;
+  }
+
+  .modal-content {
+    max-height: 85vh;
+    max-height: 85dvh;
+    padding: 0;
+  }
+
+  .booking-form {
+    padding: 16px;
   }
 
   .modal-actions {
