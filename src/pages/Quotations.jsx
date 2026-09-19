@@ -3,7 +3,12 @@ import { supabase } from '../supabaseClient';
 import { downloadQuotationPdf } from '../utils/generateQuotationPdf';
 import './Quotations.css';
 
-const MONTHS = [
+const STARTING_MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+const ENDING_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
@@ -27,7 +32,8 @@ const EMPTY_FORM = {
   reference: '',
   media_location: '',
   frequency: '1',
-  period: '',
+  starting_period: '',
+  ending_period:'',
   printing_cost: '',
   total_cost_wo_printing: '',
   total_cost_with_printing: '',
@@ -336,7 +342,8 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
         reference: form.reference,
         media_location: form.media_location,
         frequency: form.frequency === '' ? null : Number(form.frequency),
-        period: form.period,
+        starting_period: form.starting_period,
+        ending_period: form.ending_period,
         printing_cost: form.printing_cost === '' ? null : Number(form.printing_cost),
         total_cost_wo_printing: form.total_cost_wo_printing === '' ? null : Number(form.total_cost_wo_printing),
         total_cost_with_printing: form.total_cost_with_printing === '' ? null : Number(form.total_cost_with_printing),
@@ -359,11 +366,26 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     }
   };
 
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const handleDownloadCardPdf = async (item) => {
+    try {
+      setDownloadingId(item.id);
+      await downloadQuotationPdf(item);
+      showMessage('success', 'Quotation PDF downloaded successfully.');
+    } catch (error) {
+      console.error('Error downloading quotation PDF:', error);
+      showMessage('error', error.message || 'Failed to generate PDF.');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const handleConvertToPdf = async () => {
     if (!createdQuotation || pdfBusy) return;
     try {
       setPdfBusy(true);
-      const { blob, fileName } = downloadQuotationPdf(createdQuotation);
+      const { blob, fileName } = await downloadQuotationPdf(createdQuotation);
       const storagePath = `${createdQuotation.booking_id || createdQuotation.id || Date.now()}/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
@@ -413,7 +435,6 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
         )}
 
         <form className="quotation-form" onSubmit={handleSubmit}>
-          {/* ── Bug fix 1: was <SearchableSelect> with props outside the tag ── */}
           <SearchableSelect
             label="Client name"
             inputValue={clientQuery}
@@ -439,7 +460,6 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             <input type="text" value={form.client_id} disabled placeholder="Assigned from selected client" />
           </div>
 
-          {/* ── Bug fix 2: same broken pattern on billboard select ── */}
           <SearchableSelect
             label="Reference (billboard ID)"
             inputValue={billboardQuery}
@@ -497,14 +517,28 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
           </div>
 
           <div className="form-field">
-            <label>Period</label>
+            <label>Starting Period</label>
             <select
-              value={form.period}
-              onChange={(e) => setForm((prev) => ({ ...prev, period: e.target.value }))}
+              value={form.starting_period}
+              onChange={(e) => setForm((prev) => ({ ...prev, starting_period: e.target.value }))}
               required
             >
               <option value="">Select month</option>
-              {MONTHS.map((month) => (
+              {STARTING_MONTHS.map((month) => (
+                <option key={month} value={month}>{month}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-field">
+            <label>Ending Period</label>
+            <select
+              value={form.ending_period}
+              onChange={(e) => setForm((prev) => ({ ...prev, ending_period: e.target.value }))}
+              required
+            >
+              <option value="">Select month</option>
+              {ENDING_MONTHS.map((month) => (
                 <option key={month} value={month}>{month}</option>
               ))}
             </select>
@@ -558,7 +592,6 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             <span className="form-hint">Auto-calculated from the two cost fields, still editable.</span>
           </div>
 
-          {/* ── Bug fix 3: same broken pattern on booking select ── */}
           <SearchableSelect
             label="Booking"
             inputValue={bookingQuery}
@@ -661,6 +694,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
           {filteredQuotations.map((item) => {
             const businessName =
               item.client_name || userMap[item.client_id]?.business_name || 'Unknown business';
+            const isDownloading = downloadingId === item.id;
             return (
               <div key={item.id} className="quotation-card">
                 <div className="quotation-card-header">
@@ -681,7 +715,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
                 </div>
                 <div className="quotation-detail">
                   <span className="detail-label">Period / Frequency</span>
-                  <span className="detail-value">{item.period || 'N/A'} · {item.frequency ?? 'N/A'}</span>
+                  <span className="detail-value">{item.starting_period + "-" + item.ending_period || 'N/A'} · {item.frequency ?? 'N/A'}</span>
                 </div>
                 <div className="quotation-total">
                   <span className="detail-label">Total with printing</span>
@@ -690,6 +724,19 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
                 {item.booking_id && (
                   <div className="quotation-booking-id">Booking: {item.booking_id}</div>
                 )}
+                <button
+                  className="download-pdf-btn"
+                  type="button"
+                  onClick={() => handleDownloadCardPdf(item)}
+                  disabled={isDownloading}
+                >
+                  <svg className="download-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                  {isDownloading ? 'GENERATING...' : 'DOWNLOAD PDF'}
+                </button>
               </div>
             );
           })}

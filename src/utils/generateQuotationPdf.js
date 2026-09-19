@@ -1,65 +1,333 @@
 import { jsPDF } from "jspdf";
 import { supabase } from "../supabaseClient";
 
+const formatMoney = (val) => {
+  const n = typeof val === "number" ? val : parseFloat(val || 0);
+  const num = Number.isFinite(n) ? n : 0;
+  return num.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+const formatDate = (dateStr) => {
+  const d = dateStr ? new Date(dateStr) : new Date();
+  if (isNaN(d.getTime())) return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
+
 export async function downloadQuotationPdf(quotationData) {
   try {
-    // 1. Initialize jsPDF document
-    const doc = new jsPDF();
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4",
+    });
 
-    // 2. Build PDF Layout Content
-    doc.setFontSize(20);
-    doc.text("QUOTATION", 14, 22);
+    const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
+    const margin = 16;
+    const cardWidth = pageWidth - margin * 2; // 178mm
+    const cardStartX = margin;
+    const cardStartY = 20;
+    const cardHeight = 220;
+    const borderRadius = 6;
+    const shadowOffset = 3.5;
 
-    doc.setFontSize(12);
-    doc.text(`Client Name: ${quotationData.client_name || "N/A"}`, 14, 40);
-    doc.text(`Media Type: ${quotationData.media_type || "N/A"}`, 14, 50);
-    doc.text(`Media Used: ${quotationData.media_used || "N/A"}`, 14, 60);
-    doc.text(`Reference (Billboard ID): ${quotationData.reference || "N/A"}`, 14, 70);
-    doc.text(`Location: ${quotationData.media_location || "N/A"}`, 14, 80);
-    doc.text(`Period: ${quotationData.period || "N/A"}`, 14, 90);
-    doc.text(`Printing Cost: $${quotationData.printing_cost || 0}`, 14, 100);
-    doc.text(`Total (w/o printing): $${quotationData.total_cost_wo_printing || 0}`, 14, 110);
-    doc.text(`Total (with printing): $${quotationData.total_cost_with_printing || 0}`, 14, 120);
+    // 1. Draw Offset Shadow (Solid Black rounded rect)
+    doc.setFillColor(15, 15, 15);
+    doc.roundedRect(
+      cardStartX + shadowOffset,
+      cardStartY + shadowOffset,
+      cardWidth,
+      cardHeight,
+      borderRadius,
+      borderRadius,
+      "F"
+    );
 
-    const fileName = `quotation_${quotationData.booking_id || Date.now()}.pdf`;
+    // 2. Draw Main White Card Container (White fill, 1.2pt black border)
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(20, 20, 20);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(
+      cardStartX,
+      cardStartY,
+      cardWidth,
+      cardHeight,
+      borderRadius,
+      borderRadius,
+      "FD"
+    );
 
-    // 3. Trigger Local Desktop Download
-    doc.save(fileName);
+    let curY = cardStartY + 14;
+    const innerLeftX = cardStartX + 12;
+    const innerRightX = cardStartX + cardWidth - 12;
 
-    // 4. Convert PDF to Blob for Supabase Storage Upload
-    const pdfBlob = doc.output("blob");
+    // 3. HEADER SECTION
+    // Brand Logo Top Left
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(20, 20, 20); // Red #E31B23
+    doc.text("ad", innerLeftX, curY);
+    const adWidth = doc.getTextWidth("ad");
 
-    // 5. Upload to 'Quotations' Storage Bucket in Supabase
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from("Quotations")
-      .upload(`public/${fileName}`, pdfBlob, {
-        contentType: "application/pdf",
-        upsert: true,
-      });
+    doc.setTextColor(227, 27, 35); // Dark Black
+    doc.text("effect", innerLeftX + adWidth, curY);
 
-    if (uploadError) throw uploadError;
+    // Sub-brands / Taglines
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(227, 27, 35);
+    doc.text("CONNECTING MEDIA", innerLeftX, curY + 6);
 
-    // 6. Get Public URL of the Uploaded PDF
-    const { data: urlData } = supabase.storage
-      .from("Quotations")
-      .getPublicUrl(`public/${fileName}`);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.text("North Lebanon | Outdoor", innerLeftX, curY + 11);
+    doc.text("Advertising", innerLeftX, curY + 15);
 
-    const pdfPublicUrl = urlData.publicUrl;
+    // Top Right Official Quotation Title & Details
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.setTextColor(20, 20, 20);
+    doc.text("OFFICIAL", innerRightX, curY - 1, { align: "right" });
+    doc.text("QUOTATION", innerRightX, curY + 6, { align: "right" });
 
-    // 7. Update quotation_pdf_url in 'bookings' table for matching booking_id
-    if (quotationData.booking_id) {
-      const { error: updateError } = await supabase
-        .from("bookings")
-        .update({ quotation_pdf_url: pdfPublicUrl })
-        .eq("booking_id", quotationData.booking_id);
+    // Quotation ID
+    const quoRef = quotationData.id ? `QUO-${quotationData.id}` : `QUO-${quotationData.booking_id || 1}`;
+    doc.setFontSize(10.5);
+    doc.setTextColor(227, 27, 35);
+    doc.text(quoRef, innerRightX, curY + 12, { align: "right" });
 
-      if (updateError) throw updateError;
+    // Date
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Date: ${formatDate(quotationData.created_at)}`, innerRightX, curY + 17, { align: "right" });
+
+    curY += 24;
+
+    // Header Separator Line
+    doc.setDrawColor(20, 20, 20);
+    doc.setLineWidth(0.8);
+    doc.line(innerLeftX, curY, innerRightX, curY);
+
+    curY += 8;
+
+    // 4. PREPARED FOR CLIENT & CAMPAIGN REFERENCE BOX
+    const infoBoxWidth = cardWidth - 24; // 154mm
+    const infoBoxHeight = 28;
+    const infoBoxX = innerLeftX;
+    const infoBoxY = curY;
+
+    // Light gray rounded box background
+    doc.setFillColor(248, 249, 250);
+    doc.setDrawColor(230, 230, 230);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(infoBoxX, infoBoxY, infoBoxWidth, infoBoxHeight, 3, 3, "FD");
+
+    const leftColX = infoBoxX + 6;
+    const rightColX = infoBoxX + (infoBoxWidth / 2) + 4;
+    let infoY = infoBoxY + 7;
+
+    // Left Column: Prepared For Client
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text("PREPARED FOR CLIENT", leftColX, infoY);
+
+    doc.setFontSize(11);
+    doc.setTextColor(20, 20, 20);
+    const clientName = quotationData.client_name || "Client Name";
+    doc.text(clientName, leftColX, infoY + 5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(120, 120, 120);
+    const clientIdText = quotationData.client_id ? `Client ID: ${quotationData.client_id}` : "";
+    if (clientIdText) {
+      doc.text(clientIdText, leftColX, infoY + 10);
     }
 
-    alert("PDF generated, downloaded, and linked to booking successfully!");
-    return pdfPublicUrl;
+    // Right Column: Campaign Reference
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(100, 100, 100);
+    doc.text("CAMPAIGN REFERENCE", rightColX, infoY);
+
+    doc.setFontSize(11);
+    doc.setTextColor(227, 27, 35); // Red reference
+    const billboardRef = quotationData.reference ? `Billboard ${quotationData.reference}` : "Billboard Ref";
+    doc.text(billboardRef, rightColX, infoY + 5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(120, 120, 120);
+    const locationText = quotationData.media_location ? `Location: ${quotationData.media_location}` : "Location: N/A";
+    doc.text(locationText, rightColX, infoY + 10);
+
+    curY += infoBoxHeight + 10;
+
+    // 5. TABLE SECTION
+    const tableX = innerLeftX;
+    const tableWidth = cardWidth - 24; // 154mm
+    const col1W = 66; // Item & Media Description
+    const col2W = 24; // Frequency
+    const col3W = 28; // Period
+    const col4W = 36; // Amount (USD)
+
+    const tableHeaderH = 13;
+    const rowH1 = 20;
+    const rowH2 = 20;
+
+    doc.setDrawColor(40, 40, 40);
+    doc.setLineWidth(0.4);
+
+    // Table Header Row
+    doc.setFillColor(255, 255, 255);
+    doc.rect(tableX, curY, tableWidth, tableHeaderH, "D");
+
+    // Vertical dividers in header
+    doc.line(tableX + col1W, curY, tableX + col1W, curY + tableHeaderH);
+    doc.line(tableX + col1W + col2W, curY, tableX + col1W + col2W, curY + tableHeaderH);
+    doc.line(tableX + col1W + col2W + col3W, curY, tableX + col1W + col2W + col3W, curY + tableHeaderH);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(20, 20, 20);
+
+    // Header Text
+    doc.text("Item & Media", tableX + (col1W / 2), curY + 5, { align: "center" });
+    doc.text("Description", tableX + (col1W / 2), curY + 9.5, { align: "center" });
+
+    doc.text("Frequency", tableX + col1W + (col2W / 2), curY + 7.5, { align: "center" });
+    doc.text("Period", tableX + col1W + col2W + (col3W / 2), curY + 7.5, { align: "center" });
+
+    doc.text("Amount", tableX + col1W + col2W + col3W + (col4W / 2), curY + 5, { align: "center" });
+    doc.text("(USD)", tableX + col1W + col2W + col3W + (col4W / 2), curY + 9.5, { align: "center" });
+
+    let rowY = curY + tableHeaderH;
+
+    // ROW 1: Media Item (e.g. Unipole (MG001-B))
+    doc.rect(tableX, rowY, tableWidth, rowH1, "D");
+    doc.line(tableX + col1W, rowY, tableX + col1W, rowY + rowH1);
+    doc.line(tableX + col1W + col2W, rowY, tableX + col1W + col2W, rowY + rowH1);
+    doc.line(tableX + col1W + col2W + col3W, rowY, tableX + col1W + col2W + col3W, rowY + rowH1);
+
+    const mediaTitle = `${quotationData.media_type || 'Media'} (${quotationData.reference || 'Ref'})`;
+    const mediaSub = `Media Material: ${quotationData.media_used || 'N/A'}`;
+    const periodText = quotationData.starting_period
+      ? (quotationData.ending_period ? `${quotationData.starting_period} - ${quotationData.ending_period}` : quotationData.starting_period)
+      : "N/A";
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text(mediaTitle, tableX + 4, rowY + 7);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(110, 110, 110);
+    doc.text(mediaSub, tableX + 4, rowY + 13);
+
+    // Frequency, Period, Amount
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text(String(quotationData.frequency ?? 1), tableX + col1W + (col2W / 2), rowY + 11, { align: "center" });
+    doc.text(periodText, tableX + col1W + col2W + (col3W / 2), rowY + 11, { align: "center" });
+
+    doc.setFont("helvetica", "bold");
+    doc.text(`$ ${formatMoney(quotationData.total_cost_wo_printing)}`, tableX + col1W + col2W + col3W + (col4W / 2), rowY + 11, { align: "center" });
+
+    rowY += rowH1;
+
+    // ROW 2: Printing & Production Cost
+    doc.rect(tableX, rowY, tableWidth, rowH2, "D");
+    doc.line(tableX + col1W, rowY, tableX + col1W, rowY + rowH2);
+    doc.line(tableX + col1W + col2W, rowY, tableX + col1W + col2W, rowY + rowH2);
+    doc.line(tableX + col1W + col2W + col3W, rowY, tableX + col1W + col2W + col3W, rowY + rowH2);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Printing & Production", tableX + 4, rowY + 7);
+    doc.text("Cost", tableX + 4, rowY + 11);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(110, 110, 110);
+    doc.text("High resolution outdoor", tableX + 4, rowY + 15);
+    doc.text("print & installation", tableX + 4, rowY + 18.5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    doc.setTextColor(20, 20, 20);
+    doc.text("1", tableX + col1W + (col2W / 2), rowY + 11, { align: "center" });
+    doc.text("One-time", tableX + col1W + col2W + (col3W / 2), rowY + 11, { align: "center" });
+
+    doc.setFont("helvetica", "bold");
+    doc.text(`$ ${formatMoney(quotationData.printing_cost)}`, tableX + col1W + col2W + col3W + (col4W / 2), rowY + 11, { align: "center" });
+
+    curY = rowY + rowH2 + 12;
+
+    // 6. TOTALS SUMMARY BOX (BOTTOM RIGHT)
+    const totalsBoxW = 74;
+    const totalsBoxH = 34;
+    const totalsBoxX = tableX + tableWidth - totalsBoxW;
+    const totalsBoxY = curY;
+
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(20, 20, 20);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(totalsBoxX, totalsBoxY, totalsBoxW, totalsBoxH, 4, 4, "FD");
+
+    let totY = totalsBoxY + 8;
+    const labelX = totalsBoxX + 5;
+    const valX = totalsBoxX + totalsBoxW - 5;
+
+    // Line 1: Subtotal w/o Printing
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(20, 20, 20);
+    doc.text("Subtotal w/o Printing:", labelX, totY);
+    doc.text(`$ ${formatMoney(quotationData.total_cost_wo_printing)}`, valX, totY, { align: "right" });
+
+    totY += 7;
+
+    // Line 2: Printing & Mounting
+    doc.text("Printing & Mounting:", labelX, totY);
+    doc.text(`$ ${formatMoney(quotationData.printing_cost)}`, valX, totY, { align: "right" });
+
+    totY += 4;
+
+    // Divider Line inside Totals Box
+    doc.setDrawColor(20, 20, 20);
+    doc.setLineWidth(0.5);
+    doc.line(labelX, totY, valX, totY);
+
+    totY += 7;
+
+    // Line 3: Total Payable (Red Bold)
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(227, 27, 35); // Red #E31B23
+    doc.text("Total Payable:", labelX, totY);
+    doc.setFontSize(12);
+    doc.text(`$ ${formatMoney(quotationData.total_cost_with_printing)}`, valX, totY, { align: "right" });
+
+    // File name
+    const fileName = `quotation_${quotationData.booking_id || quotationData.id || Date.now()}.pdf`;
+
+    // Save locally
+    doc.save(fileName);
+
+    // Convert PDF to Blob
+    const pdfBlob = doc.output("blob");
+
+    return { blob, fileName, doc };
   } catch (error) {
-    console.error("Error generating/uploading PDF:", error);
-    alert(`PDF generation failed: ${error.message}`);
+    console.error("Error generating PDF:", error);
+    throw error;
   }
 }
