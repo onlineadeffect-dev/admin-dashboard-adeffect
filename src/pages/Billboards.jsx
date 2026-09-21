@@ -42,7 +42,8 @@ const INITIAL_FORM = {
   image_url: '',
   description: '',
   is_available: true,
-  price: ''
+  price: '',
+  monthly_price: '',
 };
 
 const Billboards = () => {
@@ -135,7 +136,8 @@ const Billboards = () => {
       image_url: billboard.image_url || '',
       description: billboard.description || '',
       is_available: billboard.is_available !== false,
-      price: billboard.price ? billboard.price.toString() : ''
+      price: billboard.price ? billboard.price.toString() : '',
+      monthly_price: billboard.monthly_price ? billboard.monthly_price.toString() : '',
     });
     setIsModalOpen(true);
   };
@@ -160,6 +162,7 @@ const Billboards = () => {
         description: formData.description.trim() || null,
         is_available: formData.is_available,
         price: formData.price ? parseFloat(formData.price) : null,
+        monthly_price: formData.monthly_price ? parseFloat(formData.monthly_price) : null,
       };
 
       if (formData.billboard_id.trim()) {
@@ -465,6 +468,17 @@ const Billboards = () => {
                     name="price"
                     placeholder="e.g. 150"
                     value={formData.price}
+                    onChange={handleInputChange}
+                  />
+                </div>
+                <div className="form-group">
+                  <label>Monthly Price ($)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    name="monthly_price"
+                    placeholder="e.g. 1200"
+                    value={formData.monthly_price}
                     onChange={handleInputChange}
                   />
                 </div>

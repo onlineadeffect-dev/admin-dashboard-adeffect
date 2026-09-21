@@ -1,6 +1,13 @@
 import { jsPDF } from "jspdf";
 import { supabase } from "../supabaseClient";
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const ALL_MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 const formatMoney = (val) => {
   const n = typeof val === "number" ? val : parseFloat(val || 0);
   const num = Number.isFinite(n) ? n : 0;
@@ -12,324 +19,545 @@ const formatMoney = (val) => {
 
 const formatDate = (dateStr) => {
   const d = dateStr ? new Date(dateStr) : new Date();
-  if (isNaN(d.getTime())) return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  if (isNaN(d.getTime()))
+    return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 };
 
-export async function downloadQuotationPdf(quotationData) {
-  try {
-    const doc = new jsPDF({
-      orientation: "portrait",
-      unit: "mm",
-      format: "a4",
+/**
+ * For a given month, sum all printing cost entries that START in that month.
+ * If an entry has no from_month specified, it is assigned to the first month of the campaign.
+ * This ensures a single print cost is NOT repeated every month.
+ */
+const printingCostForMonth = (printingCostList, month, periodMonths) => {
+  if (!Array.isArray(printingCostList) || !month) return 0;
+  const firstMonth = (periodMonths && periodMonths.length > 0) ? periodMonths[0] : null;
+  let total = 0;
+  for (const entry of printingCostList) {
+    const cost = parseFloat(entry.cost) || 0;
+    if (cost <= 0) continue;
+    const startMonth = entry.from_month || firstMonth;
+    if (startMonth === month) {
+      total += cost;
+    }
+  }
+  return total;
+};
+
+const totalPrintingCost = (printingCostList) => {
+  if (!Array.isArray(printingCostList)) return 0;
+  return printingCostList.reduce((acc, e) => acc + (parseFloat(e.cost) || 0), 0);
+};
+
+/**
+ * Format the print period entry as a list of months (e.g. "January, February, March")
+ * instead of "from -> to".
+ */
+const formatPrintPeriodMonths = (fromMonth, toMonth, campaignPeriod) => {
+  if (fromMonth && toMonth) {
+    const fromIdx = ALL_MONTHS.indexOf(fromMonth);
+    const toIdx = ALL_MONTHS.indexOf(toMonth);
+    if (fromIdx !== -1 && toIdx !== -1) {
+      if (fromIdx <= toIdx) {
+        return ALL_MONTHS.slice(fromIdx, toIdx + 1).join(", ");
+      } else {
+        const part1 = ALL_MONTHS.slice(fromIdx);
+        const part2 = ALL_MONTHS.slice(0, toIdx + 1);
+        return [...part1, ...part2].join(", ");
+      }
+    }
+    if (fromMonth === toMonth) return fromMonth;
+    return `${fromMonth}, ${toMonth}`;
+  }
+  if (fromMonth) return fromMonth;
+  if (toMonth) return toMonth;
+  if (Array.isArray(campaignPeriod) && campaignPeriod.length > 0) {
+    return campaignPeriod.join(", ");
+  }
+  return "All months";
+};
+
+// ─── PDF Layout constants ────────────────────────────────────────────────────
+
+const PAGE_W = 210; // A4 width in mm
+const MARGIN = 14;
+const INNER_LEFT = MARGIN + 4; // 18mm
+const INNER_RIGHT = PAGE_W - MARGIN - 4; // 192mm
+const CONTENT_W = INNER_RIGHT - INNER_LEFT; // 174mm
+
+// Red brand colour
+const RED = [227, 27, 35];
+const BLACK = [20, 20, 20];
+const GREY_LIGHT = [248, 249, 250];
+const GREY_BORDER = [220, 220, 220];
+
+// ─── Drawing utilities ───────────────────────────────────────────────────────
+
+const setFill = (doc, [r, g, b]) => doc.setFillColor(r, g, b);
+const setDraw = (doc, [r, g, b]) => doc.setDrawColor(r, g, b);
+const setColor = (doc, [r, g, b]) => doc.setTextColor(r, g, b);
+
+/**
+ * Draw a horizontal rule line spanning inner content width.
+ */
+const hRule = (doc, y, lw = 0.4) => {
+  doc.setLineWidth(lw);
+  setDraw(doc, BLACK);
+  doc.line(INNER_LEFT, y, INNER_RIGHT, y);
+};
+
+/**
+ * Draw a section heading in small-caps style.
+ */
+const sectionHeading = (doc, label, y) => {
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8);
+  setColor(doc, [140, 140, 140]);
+  doc.text(label.toUpperCase(), INNER_LEFT, y);
+  return y + 5;
+};
+
+// ─── Table drawing with auto-clip/wrap ──────────────────────────────────────
+
+/**
+ * Draw a simple bordered table.
+ * @param {jsPDF} doc
+ * @param {number} startX
+ * @param {number} startY
+ * @param {number[]} colWidths   — array of column widths in mm
+ * @param {string[]} headers     — header labels
+ * @param {Array<string[]>} rows — body rows (string arrays)
+ * @param {number[]} [headerAligns]  — 'left'|'center'|'right' per column
+ * @param {number[]} [bodyAligns]
+ * @param {boolean} [lastRowBold]
+ * @returns {number} Y position after the table
+ */
+const drawTable = (doc, startX, startY, colWidths, headers, rows, headerAligns, bodyAligns, lastRowBold = false) => {
+  const tableW = colWidths.reduce((a, b) => a + b, 0);
+  const ROW_H = 9;
+  const HEADER_H = 10;
+  const CELL_PAD = 2.5;
+
+  // Header background
+  setFill(doc, [240, 240, 240]);
+  setDraw(doc, BLACK);
+  doc.setLineWidth(0.4);
+  doc.rect(startX, startY, tableW, HEADER_H, "FD");
+
+  // Header text
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  setColor(doc, BLACK);
+
+  let cx = startX;
+  headers.forEach((header, i) => {
+    const align = (headerAligns && headerAligns[i]) || "center";
+    const textX = align === "right" ? cx + colWidths[i] - CELL_PAD
+      : align === "left" ? cx + CELL_PAD
+        : cx + colWidths[i] / 2;
+    doc.text(header, textX, startY + HEADER_H / 2 + 2, {
+      align,
+      maxWidth: colWidths[i] - CELL_PAD * 2,
+    });
+    if (i < headers.length - 1) {
+      doc.setLineWidth(0.3);
+      doc.line(cx + colWidths[i], startY, cx + colWidths[i], startY + HEADER_H);
+    }
+    cx += colWidths[i];
+  });
+
+  // Body rows
+  let ry = startY + HEADER_H;
+  rows.forEach((row, rowIdx) => {
+    const isLast = rowIdx === rows.length - 1;
+    const bold = isLast && lastRowBold;
+    const bg = bold ? [255, 248, 245] : [255, 255, 255];
+
+    setFill(doc, bg);
+    setDraw(doc, BLACK);
+    doc.setLineWidth(0.3);
+    doc.rect(startX, ry, tableW, ROW_H, "FD");
+
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(8.5);
+    setColor(doc, bold ? RED : BLACK);
+
+    let bx = startX;
+    row.forEach((cell, i) => {
+      const align = (bodyAligns && bodyAligns[i]) || "left";
+      const textX = align === "right" ? bx + colWidths[i] - CELL_PAD
+        : align === "center" ? bx + colWidths[i] / 2
+          : bx + CELL_PAD;
+      doc.text(String(cell), textX, ry + ROW_H / 2 + 2, {
+        align,
+        maxWidth: colWidths[i] - CELL_PAD * 2,
+      });
+      if (i < row.length - 1) {
+        doc.setLineWidth(0.2);
+        setDraw(doc, [200, 200, 200]);
+        doc.line(bx + colWidths[i], ry, bx + colWidths[i], ry + ROW_H);
+        setDraw(doc, BLACK);
+      }
+      bx += colWidths[i];
     });
 
-    const pageWidth = doc.internal.pageSize.getWidth(); // 210mm
-    const margin = 16;
-    const cardWidth = pageWidth - margin * 2; // 178mm
-    const cardStartX = margin;
-    const cardStartY = 20;
-    const cardHeight = 220;
-    const borderRadius = 6;
-    const shadowOffset = 3.5;
+    ry += ROW_H;
+  });
 
-    // 1. Draw Offset Shadow (Solid Black rounded rect)
-    doc.setFillColor(15, 15, 15);
-    doc.roundedRect(
-      cardStartX + shadowOffset,
-      cardStartY + shadowOffset,
-      cardWidth,
-      cardHeight,
-      borderRadius,
-      borderRadius,
-      "F"
-    );
+  return ry;
+};
 
-    // 2. Draw Main White Card Container (White fill, 1.2pt black border)
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(20, 20, 20);
-    doc.setLineWidth(0.6);
-    doc.roundedRect(
-      cardStartX,
-      cardStartY,
-      cardWidth,
-      cardHeight,
-      borderRadius,
-      borderRadius,
-      "FD"
-    );
+// ─── Main export ─────────────────────────────────────────────────────────────
 
-    let curY = cardStartY + 14;
-    const innerLeftX = cardStartX + 12;
-    const innerRightX = cardStartX + cardWidth - 12;
+export async function downloadQuotationPdf(quotationData) {
+  try {
+    // ── Normalise data ──────────────────────────────────────────────────────
+    const isUnofficial = !!quotationData.is_unofficial;
+    const period = Array.isArray(quotationData.period)
+      ? quotationData.period
+      : quotationData.period
+        ? quotationData.period.split(",").map((s) => s.trim()).filter(Boolean)
+        : [];
 
-    // 3. HEADER SECTION
-    // Brand Logo Top Left
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
-    doc.setTextColor(20, 20, 20); // Red #E31B23
-    doc.text("ad", innerLeftX, curY);
-    const adWidth = doc.getTextWidth("ad");
-
-    doc.setTextColor(227, 27, 35); // Dark Black
-    doc.text("effect", innerLeftX + adWidth, curY);
-
-    // Sub-brands / Taglines
-    doc.setFontSize(9.5);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(227, 27, 35);
-    doc.text("CONNECTING MEDIA", innerLeftX, curY + 6);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.text("North Lebanon | Outdoor", innerLeftX, curY + 11);
-    doc.text("Advertising", innerLeftX, curY + 15);
-
-    // Top Right Official Quotation Title & Details
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
-    doc.setTextColor(20, 20, 20);
-    doc.text("OFFICIAL", innerRightX, curY - 1, { align: "right" });
-    doc.text("QUOTATION", innerRightX, curY + 6, { align: "right" });
-
-    // Quotation ID
-    const quoRef = quotationData.id ? `QUO-${quotationData.id}` : `QUO-${quotationData.booking_id || 1}`;
-    doc.setFontSize(10.5);
-    doc.setTextColor(227, 27, 35);
-    doc.text(quoRef, innerRightX, curY + 12, { align: "right" });
-
-    // Date
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Date: ${formatDate(quotationData.created_at)}`, innerRightX, curY + 17, { align: "right" });
-
-    curY += 24;
-
-    // Header Separator Line
-    doc.setDrawColor(20, 20, 20);
-    doc.setLineWidth(0.8);
-    doc.line(innerLeftX, curY, innerRightX, curY);
-
-    curY += 8;
-
-    // 4. PREPARED FOR CLIENT & CAMPAIGN REFERENCE BOX
-    const infoBoxWidth = cardWidth - 24; // 154mm
-    const infoBoxHeight = 28;
-    const infoBoxX = innerLeftX;
-    const infoBoxY = curY;
-
-    // Light gray rounded box background
-    doc.setFillColor(248, 249, 250);
-    doc.setDrawColor(230, 230, 230);
-    doc.setLineWidth(0.3);
-    doc.roundedRect(infoBoxX, infoBoxY, infoBoxWidth, infoBoxHeight, 3, 3, "FD");
-
-    const leftColX = infoBoxX + 6;
-    const rightColX = infoBoxX + (infoBoxWidth / 2) + 4;
-    let infoY = infoBoxY + 7;
-
-    // Left Column: Prepared For Client
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
-    doc.text("PREPARED FOR CLIENT", leftColX, infoY);
-
-    doc.setFontSize(11);
-    doc.setTextColor(20, 20, 20);
-    const clientName = quotationData.client_name || "Client Name";
-    doc.text(clientName, leftColX, infoY + 5);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(120, 120, 120);
-    const clientIdText = quotationData.client_id ? `Client ID: ${quotationData.client_id}` : "";
-    if (clientIdText) {
-      doc.text(clientIdText, leftColX, infoY + 10);
+    // Normalise printing_cost to array
+    let printingCostList = [];
+    if (Array.isArray(quotationData.printing_cost)) {
+      printingCostList = quotationData.printing_cost;
+    } else if (
+      quotationData.printing_cost &&
+      typeof quotationData.printing_cost === "object"
+    ) {
+      printingCostList = [quotationData.printing_cost];
+    } else if (
+      typeof quotationData.printing_cost === "number" &&
+      quotationData.printing_cost > 0
+    ) {
+      // Legacy numeric value
+      printingCostList = [{ cost: quotationData.printing_cost, from_month: "", to_month: "" }];
     }
 
-    // Right Column: Campaign Reference
+    const totalWo = parseFloat(quotationData.total_cost_wo_printing) || 0;
+    const numMonths = period.length || 1;
+    const costPerMonth = totalWo / numMonths;
+    const totalPrinting = totalPrintingCost(printingCostList);
+    const grandTotal = totalWo + totalPrinting;
+
+    // Per-month breakdown rows
+    const monthRows = period.map((month) => {
+      const printCost = printingCostForMonth(printingCostList, month, period);
+      return {
+        month,
+        billboardCost: costPerMonth,
+        printingCost: printCost,
+        totalWithPrinting: costPerMonth + printCost,
+      };
+    });
+
+    // ── Document setup ──────────────────────────────────────────────────────
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const pageH = doc.internal.pageSize.getHeight();
+    let curY = 18;
+
+    // Helper: check if we need a new page
+    const ensureSpace = (needed) => {
+      if (curY + needed > pageH - 14) {
+        doc.addPage();
+        curY = 14;
+      }
+    };
+
+    // ── HEADER ──────────────────────────────────────────────────────────────
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    setColor(doc, BLACK);
+    doc.text("ad", INNER_LEFT, curY);
+    const adW = doc.getTextWidth("ad");
+    setColor(doc, RED);
+    doc.text("effect", INNER_LEFT + adW, curY);
+
+    doc.setFontSize(9.5);
+    doc.setFont("helvetica", "bold");
+    setColor(doc, RED);
+    doc.text("CONNECTING MEDIA", INNER_LEFT, curY + 6);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    setColor(doc, [120, 120, 120]);
+    doc.text("North Lebanon | Outdoor", INNER_LEFT, curY + 11);
+    doc.text("Advertising", INNER_LEFT, curY + 15);
+
+    // Right: title
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    setColor(doc, BLACK);
+    if (isUnofficial) {
+      doc.text("QUOTATION", INNER_RIGHT, curY + 3, { align: "right" });
+    } else {
+      doc.text("OFFICIAL", INNER_RIGHT, curY - 1, { align: "right" });
+      doc.text("QUOTATION", INNER_RIGHT, curY + 6, { align: "right" });
+    }
+
+    const quoRef = quotationData.id
+      ? `QUO-${quotationData.id}`
+      : `QUO-${quotationData.booking_id || Date.now()}`;
+    doc.setFontSize(10.5);
+    setColor(doc, RED);
+    doc.text(quoRef, INNER_RIGHT, curY + 12, { align: "right" });
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9.5);
+    setColor(doc, [100, 100, 100]);
+    doc.text(`Date: ${formatDate(quotationData.created_at)}`, INNER_RIGHT, curY + 17, { align: "right" });
+
+    curY += 24;
+    hRule(doc, curY, 0.8);
+    curY += 8;
+
+    // ── CLIENT & CAMPAIGN INFO BOX ──────────────────────────────────────────
+    const infoBoxW = CONTENT_W; // 174mm
+    const infoBoxH = 26;
+
+    setFill(doc, GREY_LIGHT);
+    setDraw(doc, GREY_BORDER);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(INNER_LEFT, curY, infoBoxW, infoBoxH, 3, 3, "FD");
+
+    const leftColX = INNER_LEFT + 6;
+    const rightColX = INNER_LEFT + infoBoxW / 2 + 4;
+    const colMaxW = infoBoxW / 2 - 10;
+    let infoY = curY + 6;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    setColor(doc, [120, 120, 120]);
+    doc.text("PREPARED FOR CLIENT", leftColX, infoY);
+
+    doc.setFontSize(10.5);
+    setColor(doc, BLACK);
+    doc.text(quotationData.client_name || "Client Name", leftColX, infoY + 5, { maxWidth: colMaxW });
+
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.setTextColor(100, 100, 100);
+    setColor(doc, [120, 120, 120]);
+    if (quotationData.client_id) {
+      doc.text(`Client ID: ${quotationData.client_id}`, leftColX, infoY + 10, { maxWidth: colMaxW });
+    }
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    setColor(doc, [120, 120, 120]);
     doc.text("CAMPAIGN REFERENCE", rightColX, infoY);
 
-    doc.setFontSize(11);
-    doc.setTextColor(227, 27, 35); // Red reference
-    const billboardRef = quotationData.reference ? `Billboard ${quotationData.reference}` : "Billboard Ref";
-    doc.text(billboardRef, rightColX, infoY + 5);
+    doc.setFontSize(10.5);
+    setColor(doc, RED);
+    doc.text(
+      quotationData.reference ? `Billboard ${quotationData.reference}` : "Billboard Ref",
+      rightColX,
+      infoY + 5,
+      { maxWidth: colMaxW }
+    );
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    setColor(doc, [120, 120, 120]);
+    doc.text(
+      quotationData.media_location ? `Location: ${quotationData.media_location}` : "Location: N/A",
+      rightColX,
+      infoY + 10,
+      { maxWidth: colMaxW }
+    );
+
+    curY += infoBoxH + 8;
+
+    // ── MEDIA DETAILS ROW ───────────────────────────────────────────────────
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    setColor(doc, [140, 140, 140]);
+    doc.text("MEDIA DETAILS", INNER_LEFT, curY);
+    curY += 5;
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8.5);
-    doc.setTextColor(120, 120, 120);
-    const locationText = quotationData.media_location ? `Location: ${quotationData.media_location}` : "Location: N/A";
-    doc.text(locationText, rightColX, infoY + 10);
+    setColor(doc, BLACK);
+    const mediaLine = [
+      quotationData.media_type ? `Type: ${quotationData.media_type}` : null,
+      quotationData.media_used ? `Used: ${quotationData.media_used}` : null,
+      quotationData.frequency != null ? `Frequency: ${quotationData.frequency}` : null,
+    ]
+      .filter(Boolean)
+      .join("    |    ");
+    doc.text(mediaLine || "N/A", INNER_LEFT, curY, { maxWidth: CONTENT_W });
+    curY += 10;
 
-    curY += infoBoxHeight + 10;
+    // ── SECTION 1: PER-MONTH BILLBOARD COST BREAKDOWN ───────────────────────
+    ensureSpace(14 + (period.length + 1) * 9 + 10);
 
-    // 5. TABLE SECTION
-    const tableX = innerLeftX;
-    const tableWidth = cardWidth - 24; // 154mm
-    const col1W = 66; // Item & Media Description
-    const col2W = 24; // Frequency
-    const col3W = 28; // Period
-    const col4W = 36; // Amount (USD)
+    curY = sectionHeading(doc, "Billboard Cost Breakdown by Month", curY);
 
-    const tableHeaderH = 13;
-    const rowH1 = 20;
-    const rowH2 = 20;
+    // colWidths sum = 42 + 44 + 44 + 44 = 174mm (matches CONTENT_W exactly)
+    const bbColWidths = [42, 44, 44, 44];
+    const bbHeaders = ["Month", "Billboard Cost / Mo", "Printing Cost", "Total w/ Printing"];
+    const bbAligns = ["left", "right", "right", "right"];
 
-    doc.setDrawColor(40, 40, 40);
-    doc.setLineWidth(0.4);
+    const bbRows = monthRows.map((r) => [
+      r.month,
+      `$ ${formatMoney(r.billboardCost)}`,
+      r.printingCost > 0 ? `$ ${formatMoney(r.printingCost)}` : "$ 0.00",
+      `$ ${formatMoney(r.totalWithPrinting)}`,
+    ]);
 
-    // Table Header Row
-    doc.setFillColor(255, 255, 255);
-    doc.rect(tableX, curY, tableWidth, tableHeaderH, "D");
+    // Totals row
+    bbRows.push([
+      "TOTAL",
+      `$ ${formatMoney(totalWo)}`,
+      totalPrinting > 0 ? `$ ${formatMoney(totalPrinting)}` : "$ 0.00",
+      `$ ${formatMoney(grandTotal)}`,
+    ]);
 
-    // Vertical dividers in header
-    doc.line(tableX + col1W, curY, tableX + col1W, curY + tableHeaderH);
-    doc.line(tableX + col1W + col2W, curY, tableX + col1W + col2W, curY + tableHeaderH);
-    doc.line(tableX + col1W + col2W + col3W, curY, tableX + col1W + col2W + col3W, curY + tableHeaderH);
+    curY = drawTable(
+      doc,
+      INNER_LEFT,
+      curY,
+      bbColWidths,
+      bbHeaders,
+      bbRows,
+      bbAligns,
+      bbAligns,
+      true // last row bold
+    );
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
-    doc.setTextColor(20, 20, 20);
+    curY += 10;
 
-    // Header Text
-    doc.text("Item & Media", tableX + (col1W / 2), curY + 5, { align: "center" });
-    doc.text("Description", tableX + (col1W / 2), curY + 9.5, { align: "center" });
+    // ── SECTION 2: PRINTING COST BREAKDOWN ─────────────────────────────────
+    if (printingCostList.length > 0) {
+      ensureSpace(14 + (printingCostList.length + 1) * 9 + 10);
 
-    doc.text("Frequency", tableX + col1W + (col2W / 2), curY + 7.5, { align: "center" });
-    doc.text("Period", tableX + col1W + col2W + (col3W / 2), curY + 7.5, { align: "center" });
+      curY = sectionHeading(doc, "Printing & Production Cost Breakdown", curY);
 
-    doc.text("Amount", tableX + col1W + col2W + col3W + (col4W / 2), curY + 5, { align: "center" });
-    doc.text("(USD)", tableX + col1W + col2W + col3W + (col4W / 2), curY + 9.5, { align: "center" });
+      // colWidths sum = 74 + 36 + 64 = 174mm (matches CONTENT_W exactly)
+      const prColWidths = [74, 36, 64];
+      const prHeaders = ["Period (Months)", "Cost (USD)", "Notes"];
+      const prAligns = ["left", "right", "left"];
 
-    let rowY = curY + tableHeaderH;
+      const prRows = printingCostList.map((entry) => {
+        const periodLabel = formatPrintPeriodMonths(entry.from_month, entry.to_month, period);
+        return [
+          periodLabel,
+          `$ ${formatMoney(entry.cost)}`,
+          "High-resolution outdoor print & installation",
+        ];
+      });
 
-    // ROW 1: Media Item (e.g. Unipole (MG001-B))
-    doc.rect(tableX, rowY, tableWidth, rowH1, "D");
-    doc.line(tableX + col1W, rowY, tableX + col1W, rowY + rowH1);
-    doc.line(tableX + col1W + col2W, rowY, tableX + col1W + col2W, rowY + rowH1);
-    doc.line(tableX + col1W + col2W + col3W, rowY, tableX + col1W + col2W + col3W, rowY + rowH1);
+      // Total printing row
+      prRows.push(["TOTAL PRINTING COST", `$ ${formatMoney(totalPrinting)}`, ""]);
 
-    const mediaTitle = `${quotationData.media_type || 'Media'} (${quotationData.reference || 'Ref'})`;
-    const mediaSub = `Media Material: ${quotationData.media_used || 'N/A'}`;
-    const periodText = Array.isArray(quotationData.period)
-      ? (quotationData.period.length > 0 ? quotationData.period.join(', ') : 'N/A')
-      : quotationData.period
-      ? quotationData.period
-      : quotationData.starting_period
-      ? (quotationData.ending_period ? `${quotationData.starting_period} - ${quotationData.ending_period}` : quotationData.starting_period)
-      : "N/A";
+      curY = drawTable(
+        doc,
+        INNER_LEFT,
+        curY,
+        prColWidths,
+        prHeaders,
+        prRows,
+        prAligns,
+        prAligns,
+        true
+      );
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
-    doc.setTextColor(20, 20, 20);
-    doc.text(mediaTitle, tableX + 4, rowY + 7);
+      curY += 10;
+    }
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(110, 110, 110);
-    doc.text(mediaSub, tableX + 4, rowY + 13);
+    // ── SECTION 3: SUMMARY TOTALS BOX ───────────────────────────────────────
+    ensureSpace(55);
 
-    // Frequency, Period, Amount
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(20, 20, 20);
-    doc.text(String(quotationData.frequency ?? 1), tableX + col1W + (col2W / 2), rowY + 11, { align: "center" });
-    doc.text(periodText, tableX + col1W + col2W + (col3W / 2), rowY + 11, { align: "center" });
+    const summaryW = 100;
+    const summaryX = INNER_RIGHT - summaryW; // 92mm to 192mm
 
-    doc.setFont("helvetica", "bold");
-    doc.text(`$ ${formatMoney(quotationData.total_cost_wo_printing)}`, tableX + col1W + col2W + col3W + (col4W / 2), rowY + 11, { align: "center" });
+    // Summary lines
+    const summaryLines = [
+      {
+        label: "Total Cost w/o Printing (all months):",
+        value: `$ ${formatMoney(totalWo)}`,
+        red: false,
+      },
+      {
+        label: "Total Printing Cost:",
+        value: `$ ${formatMoney(totalPrinting)}`,
+        red: false,
+      },
+    ];
 
-    rowY += rowH1;
+    if (period.length > 0) {
+      summaryLines.unshift({
+        label: `Cost w/o Printing per Month:`,
+        value: `$ ${formatMoney(costPerMonth)}`,
+        red: false,
+        small: true,
+      });
+    }
 
-    // ROW 2: Printing & Production Cost
-    doc.rect(tableX, rowY, tableWidth, rowH2, "D");
-    doc.line(tableX + col1W, rowY, tableX + col1W, rowY + rowH2);
-    doc.line(tableX + col1W + col2W, rowY, tableX + col1W + col2W, rowY + rowH2);
-    doc.line(tableX + col1W + col2W + col3W, rowY, tableX + col1W + col2W + col3W, rowY + rowH2);
+    const summaryBoxH = 10 + summaryLines.length * 8 + 14;
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
-    doc.setTextColor(20, 20, 20);
-    doc.text("Printing & Production", tableX + 4, rowY + 7);
-    doc.text("Cost", tableX + 4, rowY + 11);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8.5);
-    doc.setTextColor(110, 110, 110);
-    doc.text("High resolution outdoor", tableX + 4, rowY + 15);
-    doc.text("print & installation", tableX + 4, rowY + 18.5);
-
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9.5);
-    doc.setTextColor(20, 20, 20);
-    doc.text("1", tableX + col1W + (col2W / 2), rowY + 11, { align: "center" });
-    doc.text("One-time", tableX + col1W + col2W + (col3W / 2), rowY + 11, { align: "center" });
-
-    doc.setFont("helvetica", "bold");
-    doc.text(`$ ${formatMoney(quotationData.printing_cost)}`, tableX + col1W + col2W + col3W + (col4W / 2), rowY + 11, { align: "center" });
-
-    curY = rowY + rowH2 + 12;
-
-    // 6. TOTALS SUMMARY BOX (BOTTOM RIGHT)
-    const totalsBoxW = 74;
-    const totalsBoxH = 34;
-    const totalsBoxX = tableX + tableWidth - totalsBoxW;
-    const totalsBoxY = curY;
-
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(20, 20, 20);
+    setFill(doc, [255, 255, 255]);
+    setDraw(doc, BLACK);
     doc.setLineWidth(0.6);
-    doc.roundedRect(totalsBoxX, totalsBoxY, totalsBoxW, totalsBoxH, 4, 4, "FD");
+    doc.roundedRect(summaryX, curY, summaryW, summaryBoxH, 4, 4, "FD");
 
-    let totY = totalsBoxY + 8;
-    const labelX = totalsBoxX + 5;
-    const valX = totalsBoxX + totalsBoxW - 5;
+    let sy = curY + 8;
+    const labelX = summaryX + 4;
+    const valX = INNER_RIGHT - 4;
 
-    // Line 1: Subtotal w/o Printing
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
-    doc.setTextColor(20, 20, 20);
-    doc.text("Subtotal w/o Printing:", labelX, totY);
-    doc.text(`$ ${formatMoney(quotationData.total_cost_wo_printing)}`, valX, totY, { align: "right" });
+    for (const line of summaryLines) {
+      doc.setFont("helvetica", line.small ? "normal" : "bold");
+      doc.setFontSize(line.small ? 7.5 : 8.5);
+      setColor(doc, line.red ? RED : BLACK);
+      doc.text(line.label, labelX, sy, { maxWidth: summaryW - 35 });
+      doc.text(line.value, valX, sy, { align: "right" });
+      sy += 8;
+    }
 
-    totY += 7;
-
-    // Line 2: Printing & Mounting
-    doc.text("Printing & Mounting:", labelX, totY);
-    doc.text(`$ ${formatMoney(quotationData.printing_cost)}`, valX, totY, { align: "right" });
-
-    totY += 4;
-
-    // Divider Line inside Totals Box
-    doc.setDrawColor(20, 20, 20);
+    // Divider
+    sy -= 2;
     doc.setLineWidth(0.5);
-    doc.line(labelX, totY, valX, totY);
+    setDraw(doc, BLACK);
+    doc.line(labelX, sy, valX, sy);
+    sy += 7;
 
-    totY += 7;
-
-    // Line 3: Total Payable (Red Bold)
+    // Grand total
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.setTextColor(227, 27, 35); // Red #E31B23
-    doc.text("Total Payable:", labelX, totY);
-    doc.setFontSize(12);
-    doc.text(`$ ${formatMoney(quotationData.total_cost_with_printing)}`, valX, totY, { align: "right" });
+    doc.setFontSize(10.5);
+    setColor(doc, RED);
+    doc.text("COMPLETE TOTAL (w/ Printing):", labelX, sy, { maxWidth: summaryW - 40 });
+    doc.setFontSize(11.5);
+    doc.text(`$ ${formatMoney(grandTotal)}`, valX, sy, { align: "right" });
 
-    // File name
+    curY = curY + summaryBoxH + 12;
+
+    // ── FOOTER NOTE ─────────────────────────────────────────────────────────
+    ensureSpace(18);
+    hRule(doc, curY, 0.5);
+    curY += 5;
+
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7.5);
+    setColor(doc, [160, 160, 160]);
+    //doc.text(
+      //"This quotation is valid for 30 days from the date of issue. All amounts are in USD.",
+      //INNER_LEFT,
+      //curY
+    //);
+    curY += 4;
+    doc.text(
+      "adeffect | North Lebanon | Outdoor Advertising",
+      INNER_LEFT,
+      curY
+    );
+
+    // ── Save & export ───────────────────────────────────────────────────────
     const fileName = `quotation_${quotationData.booking_id || quotationData.id || Date.now()}.pdf`;
-
-    // Save locally
     doc.save(fileName);
-
-    // Convert PDF to Blob
     const pdfBlob = doc.output("blob");
 
-    return { blob, fileName, doc };
+    return { blob: pdfBlob, fileName, doc };
   } catch (error) {
     console.error("Error generating PDF:", error);
     throw error;
