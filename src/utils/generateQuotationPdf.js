@@ -216,7 +216,11 @@ export async function downloadQuotationPdf(quotationData) {
 
     const mediaTitle = `${quotationData.media_type || 'Media'} (${quotationData.reference || 'Ref'})`;
     const mediaSub = `Media Material: ${quotationData.media_used || 'N/A'}`;
-    const periodText = quotationData.starting_period
+    const periodText = Array.isArray(quotationData.period)
+      ? (quotationData.period.length > 0 ? quotationData.period.join(', ') : 'N/A')
+      : quotationData.period
+      ? quotationData.period
+      : quotationData.starting_period
       ? (quotationData.ending_period ? `${quotationData.starting_period} - ${quotationData.ending_period}` : quotationData.starting_period)
       : "N/A";
 

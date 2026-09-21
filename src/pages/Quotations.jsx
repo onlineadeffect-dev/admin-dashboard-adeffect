@@ -3,12 +3,7 @@ import { supabase } from '../supabaseClient';
 import { downloadQuotationPdf } from '../utils/generateQuotationPdf';
 import './Quotations.css';
 
-const STARTING_MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
-
-const ENDING_MONTHS = [
+const ALL_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
@@ -32,8 +27,7 @@ const EMPTY_FORM = {
   reference: '',
   media_location: '',
   frequency: '1',
-  starting_period: '',
-  ending_period:'',
+  period: [],
   printing_cost: '',
   total_cost_wo_printing: '',
   total_cost_with_printing: '',
@@ -59,6 +53,74 @@ const formatDate = (dateString) => {
     month: 'short',
     day: 'numeric',
   });
+};
+
+const MultiMonthSelect = ({ selectedMonths = [], onChange }) => {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const toggleMonth = (month) => {
+    let updated;
+    if (selectedMonths.includes(month)) {
+      updated = selectedMonths.filter((m) => m !== month);
+    } else {
+      // Maintain natural chronological month order
+      updated = ALL_MONTHS.filter((m) => selectedMonths.includes(m) || m === month);
+    }
+    onChange(updated);
+  };
+
+  const displayText = selectedMonths.length > 0 ? selectedMonths.join(', ') : 'Select months...';
+
+  return (
+    <div className="form-field full-width" ref={wrapRef}>
+      <label>Period (Months)</label>
+      <div
+        className={`multi-select-display ${open ? 'open' : ''}`}
+        onClick={() => setOpen(!open)}
+      >
+        <span className={selectedMonths.length === 0 ? 'placeholder' : 'selected-value'}>
+          {displayText}
+        </span>
+        <span className="dropdown-arrow">▼</span>
+      </div>
+      {open && (
+        <div className="combobox-list month-dropdown-list">
+          {ALL_MONTHS.map((month) => {
+            const isSelected = selectedMonths.includes(month);
+            return (
+              <div
+                key={month}
+                className={`combobox-option month-option ${isSelected ? 'selected' : ''}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleMonth(month);
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isSelected}
+                  onChange={() => {}}
+                  style={{ marginRight: '8px', cursor: 'pointer' }}
+                />
+                {month}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 };
 
 const SearchableSelect = ({
@@ -186,6 +248,30 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     fetchAll();
   }, []);
 
+  const extractBookingPeriod = (booking) => {
+    if (!booking) return [];
+    if (Array.isArray(booking.period)) return booking.period;
+    if (typeof booking.period === 'string' && booking.period.trim()) {
+      return booking.period.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    // Fallback: derive from start_time and end_time if available
+    if (booking.start_time && booking.end_time) {
+      const start = new Date(booking.start_time);
+      const end = new Date(booking.end_time);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+        const months = [];
+        const current = new Date(start.getFullYear(), start.getMonth(), 1);
+        const last = new Date(end.getFullYear(), end.getMonth(), 1);
+        while (current <= last) {
+          months.push(ALL_MONTHS[current.getMonth()]);
+          current.setMonth(current.getMonth() + 1);
+        }
+        return Array.from(new Set(months));
+      }
+    }
+    return [];
+  };
+
   const applyBookingPrefill = (bookingId, usersList = users, boards = billboards, bookingsList = bookings) => {
     if (!bookingId) return;
     const booking = bookingsList.find((item) => String(item.booking_id) === String(bookingId));
@@ -199,7 +285,8 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     const user = usersList.find((item) => item.user_id === clientId);
     const billboardId = booking.billboard_id || '';
     const billboard = boards.find((item) => String(item.billboard_id) === String(billboardId));
-    const businessName = user?.business_name || user?.user_name || '';
+    const businessName = user?.business_name || user?.user_name || booking.offline_business_name || '';
+    const bookingPeriod = extractBookingPeriod(booking);
 
     setForm((prev) => ({
       ...prev,
@@ -209,6 +296,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
       reference: billboardId,
       media_location: billboard?.location || prev.media_location,
       media_type: billboard?.media_type || prev.media_type,
+      period: bookingPeriod.length > 0 ? bookingPeriod : prev.period,
     }));
     setClientQuery(businessName);
     setBillboardQuery(billboardId ? String(billboardId) : '');
@@ -331,6 +419,10 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
       showMessage('error', 'Please choose a booking so the PDF can be linked.');
       return;
     }
+    if (!form.period || form.period.length === 0) {
+      showMessage('error', 'Please select at least one month for the period.');
+      return;
+    }
 
     try {
       setSaving(true);
@@ -342,8 +434,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
         reference: form.reference,
         media_location: form.media_location,
         frequency: form.frequency === '' ? null : Number(form.frequency),
-        starting_period: form.starting_period,
-        ending_period: form.ending_period,
+        period: form.period,
         printing_cost: form.printing_cost === '' ? null : Number(form.printing_cost),
         total_cost_wo_printing: form.total_cost_wo_printing === '' ? null : Number(form.total_cost_wo_printing),
         total_cost_with_printing: form.total_cost_with_printing === '' ? null : Number(form.total_cost_with_printing),
@@ -516,33 +607,10 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             </select>
           </div>
 
-          <div className="form-field">
-            <label>Starting Period</label>
-            <select
-              value={form.starting_period}
-              onChange={(e) => setForm((prev) => ({ ...prev, starting_period: e.target.value }))}
-              required
-            >
-              <option value="">Select month</option>
-              {STARTING_MONTHS.map((month) => (
-                <option key={month} value={month}>{month}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-field">
-            <label>Ending Period</label>
-            <select
-              value={form.ending_period}
-              onChange={(e) => setForm((prev) => ({ ...prev, ending_period: e.target.value }))}
-              required
-            >
-              <option value="">Select month</option>
-              {ENDING_MONTHS.map((month) => (
-                <option key={month} value={month}>{month}</option>
-              ))}
-            </select>
-          </div>
+          <MultiMonthSelect
+            selectedMonths={form.period}
+            onChange={(selected) => setForm((prev) => ({ ...prev, period: selected }))}
+          />
 
           <div className="form-field">
             <label>Frequency</label>
@@ -603,8 +671,10 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
               const booking = option.booking;
               const clientId = booking.client_id || booking.user_id || form.client_id;
               const user = userMap[clientId];
-              const businessName = user?.business_name || user?.user_name || form.client_name;
+              const businessName = user?.business_name || user?.user_name || booking.offline_business_name || form.client_name;
               const board = billboards.find((item) => String(item.billboard_id) === String(booking.billboard_id));
+              const bookingPeriod = extractBookingPeriod(booking);
+
               setBookingQuery(option.label);
               setClientQuery(businessName);
               setBillboardQuery(booking.billboard_id ? String(booking.billboard_id) : '');
@@ -615,6 +685,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
                 client_name: businessName || prev.client_name,
                 reference: booking.billboard_id || prev.reference,
                 media_location: board?.location || prev.media_location,
+                period: bookingPeriod.length > 0 ? bookingPeriod : prev.period,
               }));
             }}
           />
@@ -653,7 +724,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
                 >
                   Skip for now
                 </button>
-              </div>
+                </div>
             </div>
           </div>
         )}
@@ -695,6 +766,10 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             const businessName =
               item.client_name || userMap[item.client_id]?.business_name || 'Unknown business';
             const isDownloading = downloadingId === item.id;
+            const periodDisplay = Array.isArray(item.period)
+              ? item.period.join(', ')
+              : (item.starting_period ? `${item.starting_period}${item.ending_period ? ` - ${item.ending_period}` : ''}` : 'N/A');
+
             return (
               <div key={item.id} className="quotation-card">
                 <div className="quotation-card-header">
@@ -715,7 +790,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
                 </div>
                 <div className="quotation-detail">
                   <span className="detail-label">Period / Frequency</span>
-                  <span className="detail-value">{item.starting_period + "-" + item.ending_period || 'N/A'} · {item.frequency ?? 'N/A'}</span>
+                  <span className="detail-value">{periodDisplay} · {item.frequency ?? 'N/A'}</span>
                 </div>
                 <div className="quotation-total">
                   <span className="detail-label">Total with printing</span>

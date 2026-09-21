@@ -261,6 +261,66 @@
   color: #777;
 }
 
+.form-field.full-width {
+  grid-column: 1 / -1;
+}
+
+.multi-select-display {
+  padding: 12px 14px;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  background: #f4f4f5;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+}
+
+.multi-select-display.open,
+.multi-select-display:hover {
+  border-color: #000;
+  background: #fff;
+}
+
+.multi-select-display .placeholder {
+  color: #888;
+}
+
+.multi-select-display .selected-value {
+  color: #18181b;
+  font-weight: 500;
+}
+
+.dropdown-arrow {
+  font-size: 10px;
+  color: #666;
+}
+
+.month-dropdown-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  padding: 8px;
+  max-height: 240px;
+}
+
+.month-option {
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  user-select: none;
+}
+
+.month-option.selected {
+  background-color: #fff1ed;
+  color: #de310a;
+  font-weight: 700;
+}
+
 .combobox-list {
   position: absolute;
   top: calc(100% + 4px);
