@@ -428,109 +428,22 @@ export async function downloadQuotationPdf(quotationData) {
 
     curY += 10;
 
-    // ── SECTION 2: PRINTING COST BREAKDOWN ─────────────────────────────────
-    if (printingCostList.length > 0) {
-      ensureSpace(14 + (printingCostList.length + 1) * 9 + 10);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(8);
+    setColor(doc, BLACK);
+    //doc.text(
+      //"This quotation is valid for 30 days from the date of issue. All amounts are in USD.",
+      //INNER_LEFT,
+      //curY
+    //);
+    curY += 4;
+    doc.text(
+      "Note: Subject to VAT",
+      INNER_LEFT,
+      curY
+    );
 
-      curY = sectionHeading(doc, "Printing & Production Cost Breakdown", curY);
-
-      // colWidths sum = 74 + 36 + 64 = 174mm (matches CONTENT_W exactly)
-      const prColWidths = [74, 36, 64];
-      const prHeaders = ["Period (Months)", "Cost (USD)", "Notes"];
-      const prAligns = ["left", "right", "left"];
-
-      const prRows = printingCostList.map((entry) => {
-        const periodLabel = formatPrintPeriodMonths(entry.from_month, entry.to_month, period);
-        return [
-          periodLabel,
-          `$ ${formatMoney(entry.cost)}`,
-          "High-resolution outdoor print & installation",
-        ];
-      });
-
-      // Total printing row
-      prRows.push(["TOTAL PRINTING COST", `$ ${formatMoney(totalPrinting)}`, ""]);
-
-      curY = drawTable(
-        doc,
-        INNER_LEFT,
-        curY,
-        prColWidths,
-        prHeaders,
-        prRows,
-        prAligns,
-        prAligns,
-        true
-      );
-
-      curY += 10;
-    }
-
-    // ── SECTION 3: SUMMARY TOTALS BOX ───────────────────────────────────────
-    ensureSpace(55);
-
-    const summaryW = 100;
-    const summaryX = INNER_RIGHT - summaryW; // 92mm to 192mm
-
-    // Summary lines
-    const summaryLines = [
-      {
-        label: "Total Cost w/o Printing (all months):",
-        value: `$ ${formatMoney(totalWo)}`,
-        red: false,
-      },
-      {
-        label: "Total Printing Cost:",
-        value: `$ ${formatMoney(totalPrinting)}`,
-        red: false,
-      },
-    ];
-
-    if (period.length > 0) {
-      summaryLines.unshift({
-        label: `Cost w/o Printing per Month:`,
-        value: `$ ${formatMoney(costPerMonth)}`,
-        red: false,
-        small: true,
-      });
-    }
-
-    const summaryBoxH = 10 + summaryLines.length * 8 + 14;
-
-    setFill(doc, [255, 255, 255]);
-    setDraw(doc, BLACK);
-    doc.setLineWidth(0.6);
-    doc.roundedRect(summaryX, curY, summaryW, summaryBoxH, 4, 4, "FD");
-
-    let sy = curY + 8;
-    const labelX = summaryX + 4;
-    const valX = INNER_RIGHT - 4;
-
-    for (const line of summaryLines) {
-      doc.setFont("helvetica", line.small ? "normal" : "bold");
-      doc.setFontSize(line.small ? 7.5 : 8.5);
-      setColor(doc, line.red ? RED : BLACK);
-      doc.text(line.label, labelX, sy, { maxWidth: summaryW - 35 });
-      doc.text(line.value, valX, sy, { align: "right" });
-      sy += 8;
-    }
-
-    // Divider
-    sy -= 2;
-    doc.setLineWidth(0.5);
-    setDraw(doc, BLACK);
-    doc.line(labelX, sy, valX, sy);
-    sy += 7;
-
-    // Grand total
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10.5);
-    setColor(doc, RED);
-    doc.text("COMPLETE TOTAL (w/ Printing):", labelX, sy, { maxWidth: summaryW - 40 });
-    doc.setFontSize(11.5);
-    doc.text(`$ ${formatMoney(grandTotal)}`, valX, sy, { align: "right" });
-
-    curY = curY + summaryBoxH + 12;
+    curY += 10;
 
     // ── FOOTER NOTE ─────────────────────────────────────────────────────────
     ensureSpace(18);
@@ -551,6 +464,7 @@ export async function downloadQuotationPdf(quotationData) {
       INNER_LEFT,
       curY
     );
+
 
     // ── Save & export ───────────────────────────────────────────────────────
     const fileName = `quotation_${quotationData.booking_id || quotationData.id || Date.now()}.pdf`;
