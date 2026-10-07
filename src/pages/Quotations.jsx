@@ -22,17 +22,12 @@ const MEDIA_USED_OPTIONS = [
 const EMPTY_FORM = {
   client_id: '',
   client_name: '',
-  media_type: '',
-  media_used: '',
-  reference: '',
-  media_location: '',
   frequency: '1',
   period: [],
-  printing_cost: [],
+  billboards: [], // Array of { billboard_id, location, type, monthly_price, printing_cost, printing_month }
   total_cost_wo_printing: '',
   total_cost_with_printing: '',
   booking_id: '',
-  billboard_price: '',
   is_unofficial: false,
 };
 
@@ -67,27 +62,47 @@ const getBillboardPrice = (board) => {
   return '';
 };
 
-/**
- * Sum all printing cost entries that start in the given month.
- */
-const printingCostForMonth = (printingCostList, month, periodMonths) => {
-  if (!Array.isArray(printingCostList) || !month) return 0;
-  const firstMonth = (periodMonths && periodMonths.length > 0) ? periodMonths[0] : null;
-  let total = 0;
-  for (const entry of printingCostList) {
-    const cost = parseFloat(entry.cost) || 0;
-    if (cost <= 0) continue;
-    const startMonth = entry.from_month || firstMonth;
-    if (startMonth === month) {
-      total += cost;
-    }
-  }
-  return total;
+const totalPrintingCost = (billboards) => {
+  if (!Array.isArray(billboards)) return 0;
+  return billboards.reduce((acc, b) => acc + (parseFloat(b.printing_cost) || 0), 0);
 };
 
-const totalPrintingCost = (printingCostList) => {
-  if (!Array.isArray(printingCostList)) return 0;
-  return printingCostList.reduce((acc, e) => acc + (parseFloat(e.cost) || 0), 0);
+const autoCalcWoPrinting = (billboards, period) => {
+  if (!Array.isArray(billboards)) return '';
+  const months = Array.isArray(period) ? period.length : 0;
+  if (months === 0) return '';
+  const sumPerMonth = billboards.reduce((acc, b) => acc + (parseFloat(b.monthly_price) || 0), 0);
+  if (sumPerMonth === 0) return '';
+  return (sumPerMonth * months).toFixed(2);
+};
+
+const recalcWithPrinting = (woPrinting, billboards) => {
+  const wo = parseFloat(woPrinting) || 0;
+  const printing = totalPrintingCost(billboards);
+  return (wo + printing).toFixed(2);
+};
+
+const parseBillboards = (item, billboardsData) => {
+  if (!item) return [];
+  try {
+    const parsed = JSON.parse(item.reference);
+    if (Array.isArray(parsed)) return parsed;
+  } catch (e) {
+    // Legacy single billboard
+    if (item.reference) {
+      const board = billboardsData.find(b => String(b.billboard_id) === String(item.reference));
+      return [{
+        billboard_id: item.reference,
+        location: item.media_location || (board ? board.location : ''),
+        type: item.media_type || (board ? board.media_type : ''),
+        monthly_price: getBillboardPrice(board) || item.billboard_price || 0,
+        printing_cost: typeof item.printing_cost === 'number' ? item.printing_cost : 
+                       (Array.isArray(item.printing_cost) && item.printing_cost[0] ? parseFloat(item.printing_cost[0].cost) || 0 : 0),
+        printing_month: Array.isArray(item.printing_cost) && item.printing_cost[0] ? item.printing_cost[0].from_month : ''
+      }];
+    }
+  }
+  return [];
 };
 
 // ─── MultiMonthSelect ────────────────────────────────────────────────────────
@@ -223,85 +238,71 @@ const SearchableSelect = ({
   );
 };
 
-// ─── PrintingCostList ────────────────────────────────────────────────────────
+// ─── BillboardSearchPicker ────────────────────────────────────────────────────
+// Self-managed input that clears itself after a billboard is selected.
 
-const PrintingCostList = ({ entries, onChange }) => {
-  const addEntry = () => {
-    onChange([...entries, { cost: '', from_month: '', to_month: '' }]);
-  };
+const BillboardSearchPicker = ({ allBillboards, onAdd, required }) => {
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
 
-  const removeEntry = (index) => {
-    onChange(entries.filter((_, i) => i !== index));
-  };
+  useEffect(() => {
+    const handleClick = (event) => {
+      if (wrapRef.current && !wrapRef.current.contains(event.target)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
-  const updateEntry = (index, field, value) => {
-    const updated = entries.map((e, i) =>
-      i === index ? { ...e, [field]: value } : e
-    );
-    onChange(updated);
-  };
+  const filtered = allBillboards
+    .filter((board) => {
+      const id = (board.billboard_id || '').toString().toLowerCase();
+      const loc = (board.location || '').toLowerCase();
+      return !query || id.includes(query.toLowerCase()) || loc.includes(query.toLowerCase());
+    })
+    .slice(0, 12);
 
   return (
-    <div className="form-field full-width">
-      <label>Printing Cost (per period)</label>
-      <div className="printing-cost-list">
-        {entries.length === 0 && (
-          <p className="printing-cost-empty">No printing costs added. Click "+ Add print period" below.</p>
-        )}
-        {entries.map((entry, index) => (
-          <div key={index} className="printing-cost-row">
-            <div className="printing-cost-field">
-              <label className="printing-cost-sublabel">Cost (USD)</label>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={entry.cost}
-                onChange={(e) => updateEntry(index, 'cost', e.target.value)}
-              />
-            </div>
-            <div className="printing-cost-field">
-              <label className="printing-cost-sublabel">From month</label>
-              <select
-                value={entry.from_month}
-                onChange={(e) => updateEntry(index, 'from_month', e.target.value)}
+    <div className="form-field" ref={wrapRef} style={{ flex: '1 1 250px' }}>
+      <label>Add a billboard</label>
+      <input
+        type="text"
+        value={query}
+        placeholder="Search billboard ID to add..."
+        required={required}
+        autoComplete="off"
+        onFocus={() => setOpen(true)}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+      />
+      {open && (
+        <div className="combobox-list">
+          {filtered.length === 0 ? (
+            <div className="combobox-empty">No matches</div>
+          ) : (
+            filtered.map((board) => (
+              <div
+                key={board.billboard_id}
+                className="combobox-option"
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onAdd(board);
+                  setQuery('');
+                  setOpen(false);
+                }}
               >
-                <option value="">Select month</option>
-                {ALL_MONTHS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <div className="printing-cost-field">
-              <label className="printing-cost-sublabel">To month</label>
-              <select
-                value={entry.to_month}
-                onChange={(e) => updateEntry(index, 'to_month', e.target.value)}
-              >
-                <option value="">Select month</option>
-                {ALL_MONTHS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              className="remove-print-period-btn"
-              onClick={() => removeEntry(index)}
-              title="Remove this entry"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-        <button type="button" className="add-print-period-btn" onClick={addEntry}>
-          + Add print period
-        </button>
-      </div>
+                {board.billboard_id}{board.location ? ` — ${board.location}` : ''}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 };
+
+
 
 // ─── Main Quotations Component ───────────────────────────────────────────────
 
@@ -311,13 +312,13 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
   const [users, setUsers] = useState([]);
   const [billboards, setBillboards] = useState([]);
   const [bookings, setBookings] = useState([]);
+  const [bookingItems, setBookingItems] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [clientQuery, setClientQuery] = useState('');
-  const [billboardQuery, setBillboardQuery] = useState('');
   const [notification, setNotification] = useState(null);
   const [createdQuotation, setCreatedQuotation] = useState(null);
   const [showPdfPrompt, setShowPdfPrompt] = useState(false);
@@ -340,22 +341,25 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
   const fetchAll = async () => {
     try {
       setLoading(true);
-      const [quotationsRes, usersRes, billboardsRes, bookingsRes] = await Promise.all([
+      const [quotationsRes, usersRes, billboardsRes, bookingsRes, bookingItemsRes] = await Promise.all([
         supabase.from('quotations').select('*').order('created_at', { ascending: false }),
         supabase.from('users').select('user_id, business_name, user_name, email'),
         supabase.from('billboards').select('*'),
         supabase.from('bookings').select('*'),
+        supabase.from('booking_items').select('*')
       ]);
 
       if (quotationsRes.error) throw quotationsRes.error;
       if (usersRes.error) throw usersRes.error;
       if (billboardsRes.error) throw billboardsRes.error;
       if (bookingsRes.error) throw bookingsRes.error;
+      if (bookingItemsRes.error) throw bookingItemsRes.error;
 
       setQuotations(quotationsRes.data || []);
       setUsers(usersRes.data || []);
       setBillboards(billboardsRes.data || []);
       setBookings(bookingsRes.data || []);
+      setBookingItems(bookingItemsRes.data || []);
     } catch (error) {
       console.error('Error loading quotations:', error);
       showMessage('error', error.message || 'Failed to load quotations.');
@@ -391,23 +395,9 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     return [];
   };
 
-  // ── Auto-calculate total_cost_wo_printing ──
-  const autoCalcWoPrinting = (billboardPrice, period) => {
-    const price = parseFloat(billboardPrice) || 0;
-    const months = Array.isArray(period) ? period.length : 0;
-    if (price > 0 && months > 0) {
-      return (price * months).toFixed(2);
-    }
-    return '';
-  };
 
-  const recalcWithPrinting = (woPrinting, printingCostList) => {
-    const wo = parseFloat(woPrinting) || 0;
-    const printing = totalPrintingCost(printingCostList);
-    return (wo + printing).toFixed(2);
-  };
 
-  const applyBookingPrefill = (bookingId, usersList = users, boards = billboards, bookingsList = bookings) => {
+  const applyBookingPrefill = (bookingId, usersList = users, boards = billboards, bookingsList = bookings, bItems = bookingItems) => {
     if (!bookingId) return;
     const booking = bookingsList.find((item) => String(item.booking_id) === String(bookingId));
     if (!booking) {
@@ -417,12 +407,38 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
 
     const clientId = booking.client_id || booking.user_id || '';
     const user = usersList.find((item) => item.user_id === clientId);
-    const billboardId = booking.billboard_id || '';
-    const billboard = boards.find((item) => String(item.billboard_id) === String(billboardId));
     const businessName = user?.business_name || user?.user_name || booking.offline_business_name || '';
     const bookingPeriod = extractBookingPeriod(booking);
-    const billboardPrice = getBillboardPrice(billboard);
-    const woCalc = autoCalcWoPrinting(billboardPrice, bookingPeriod);
+    
+    // Find booking items
+    const relatedItems = bItems.filter(item => String(item.booking_id) === String(bookingId));
+    let prefilledBillboards = [];
+    if (relatedItems.length > 0) {
+      prefilledBillboards = relatedItems.map(item => {
+        const board = boards.find(b => String(b.billboard_id) === String(item.billboard_id));
+        return {
+          billboard_id: item.billboard_id,
+          location: board?.location || '',
+          type: board?.media_type || '',
+          monthly_price: getBillboardPrice(board) || item.price_at_the_time_of_booking || 0,
+          printing_cost: item.printing_cost || 0,
+          printing_month: bookingPeriod[0] || ''
+        };
+      });
+    } else if (booking.billboard_id) {
+      // Fallback for old bookings
+      const board = boards.find((item) => String(item.billboard_id) === String(booking.billboard_id));
+      prefilledBillboards = [{
+        billboard_id: booking.billboard_id,
+        location: board?.location || '',
+        type: board?.media_type || '',
+        monthly_price: getBillboardPrice(board) || 0,
+        printing_cost: 0,
+        printing_month: bookingPeriod[0] || ''
+      }];
+    }
+
+    const woCalc = autoCalcWoPrinting(prefilledBillboards, bookingPeriod);
 
     setForm((prev) => ({
       ...prev,
@@ -430,16 +446,12 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
       is_unofficial: false,
       client_id: clientId,
       client_name: businessName,
-      reference: billboardId,
-      media_location: billboard?.location || prev.media_location,
-      media_type: billboard?.media_type || prev.media_type,
       period: bookingPeriod.length > 0 ? bookingPeriod : prev.period,
-      billboard_price: billboardPrice,
+      billboards: prefilledBillboards,
       total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
-      total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prev.printing_cost),
+      total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prefilledBillboards),
     }));
     setClientQuery(businessName);
-    setBillboardQuery(billboardId ? String(billboardId) : '');
   };
 
   useEffect(() => {
@@ -486,28 +498,13 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
       }));
   }, [users, clientQuery]);
 
-  const billboardOptions = useMemo(() => {
-    const q = billboardQuery.toLowerCase();
-    return billboards
-      .filter((board) => {
-        const id = (board.billboard_id || '').toString().toLowerCase();
-        const loc = (board.location || '').toLowerCase();
-        return !q || id.includes(q) || loc.includes(q);
-      })
-      .slice(0, 12)
-      .map((board) => ({
-        value: board.billboard_id,
-        label: `${board.billboard_id}${board.location ? ` — ${board.location}` : ''}`,
-        board,
-      }));
-  }, [billboards, billboardQuery]);
+
 
   // ─── Open create / edit ────────────────────────────────────────────────────
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
     setClientQuery('');
-    setBillboardQuery('');
     setCreatedQuotation(null);
     setShowPdfPrompt(false);
     setEditingId(null);
@@ -515,38 +512,22 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
   };
 
   const openEdit = (item) => {
-    let printingCostList = [];
-    if (Array.isArray(item.printing_cost)) {
-      printingCostList = item.printing_cost;
-    } else if (item.printing_cost && typeof item.printing_cost === 'object') {
-      printingCostList = [item.printing_cost];
-    } else if (typeof item.printing_cost === 'number' && item.printing_cost > 0) {
-      printingCostList = [{ cost: String(item.printing_cost), from_month: '', to_month: '' }];
-    }
-
-    const billboard = billboards.find((b) => String(b.billboard_id) === String(item.reference));
-    const billboardPrice = getBillboardPrice(billboard);
+    const parsedBillboards = parseBillboards(item, billboards);
     const isUnofficialQuotation = !item.booking_id || !bookings.some((b) => String(b.booking_id) === String(item.booking_id));
 
     setForm({
       ...EMPTY_FORM,
       client_id: item.client_id || '',
       client_name: item.client_name || '',
-      media_type: item.media_type || '',
-      media_used: item.media_used || '',
-      reference: item.reference || '',
-      media_location: item.media_location || '',
       frequency: item.frequency != null ? String(item.frequency) : '1',
       period: Array.isArray(item.period) ? item.period : [],
-      printing_cost: printingCostList,
+      billboards: parsedBillboards,
       total_cost_wo_printing: item.total_cost_wo_printing != null ? String(item.total_cost_wo_printing) : '',
       total_cost_with_printing: item.total_cost_with_printing != null ? String(item.total_cost_with_printing) : '',
       booking_id: isUnofficialQuotation ? '' : (item.booking_id || ''),
-      billboard_price: billboardPrice,
       is_unofficial: isUnofficialQuotation,
     });
     setClientQuery(item.client_name || '');
-    setBillboardQuery(item.reference ? String(item.reference) : '');
     setCreatedQuotation(null);
     setShowPdfPrompt(false);
     setEditingId(item.id);
@@ -571,26 +552,48 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     const clientId = booking.client_id || booking.user_id || form.client_id;
     const user = userMap[clientId];
     const businessName = user?.business_name || user?.user_name || booking.offline_business_name || form.client_name;
-    const board = billboards.find((item) => String(item.billboard_id) === String(booking.billboard_id));
     const bookingPeriod = extractBookingPeriod(booking);
-    const billboardPrice = getBillboardPrice(board);
-    const woCalc = autoCalcWoPrinting(billboardPrice, bookingPeriod.length > 0 ? bookingPeriod : form.period);
+
+    const relatedItems = bookingItems.filter(item => String(item.booking_id) === String(booking.booking_id));
+    let prefilledBillboards = [];
+    if (relatedItems.length > 0) {
+      prefilledBillboards = relatedItems.map(item => {
+        const board = billboards.find(b => String(b.billboard_id) === String(item.billboard_id));
+        return {
+          billboard_id: item.billboard_id,
+          location: board?.location || '',
+          type: board?.media_type || '',
+          monthly_price: getBillboardPrice(board) || item.price_at_the_time_of_booking || 0,
+          printing_cost: item.printing_cost || 0,
+          printing_month: bookingPeriod[0] || ''
+        };
+      });
+    } else if (booking.billboard_id) {
+      const board = billboards.find((item) => String(item.billboard_id) === String(booking.billboard_id));
+      prefilledBillboards = [{
+        billboard_id: booking.billboard_id,
+        location: board?.location || '',
+        type: board?.media_type || '',
+        monthly_price: getBillboardPrice(board) || 0,
+        printing_cost: 0,
+        printing_month: bookingPeriod[0] || ''
+      }];
+    }
+
+    const newPeriod = bookingPeriod.length > 0 ? bookingPeriod : form.period;
+    const woCalc = autoCalcWoPrinting(prefilledBillboards, newPeriod);
 
     setClientQuery(businessName);
-    setBillboardQuery(booking.billboard_id ? String(booking.billboard_id) : '');
     setForm((prev) => ({
       ...prev,
       booking_id: booking.booking_id,
       is_unofficial: false,
       client_id: clientId || prev.client_id,
       client_name: businessName || prev.client_name,
-      reference: booking.billboard_id || prev.reference,
-      media_location: board?.location || prev.media_location,
-      media_type: board?.media_type || prev.media_type,
-      period: bookingPeriod.length > 0 ? bookingPeriod : prev.period,
-      billboard_price: billboardPrice,
+      period: newPeriod,
+      billboards: prefilledBillboards,
       total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
-      total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prev.printing_cost),
+      total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prefilledBillboards),
     }));
   };
 
@@ -600,12 +603,12 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     event.preventDefault();
     if (saving) return;
 
-    if (!form.client_id || !form.client_name) {
-      showMessage('error', 'Please choose a client from the dropdown.');
+    if (!form.client_name) {
+      showMessage('error', 'Please enter or select a client name.');
       return;
     }
-    if (!form.reference) {
-      showMessage('error', 'Please choose a billboard reference from the dropdown.');
+    if (!form.billboards || form.billboards.length === 0) {
+      showMessage('error', 'Please add at least one billboard.');
       return;
     }
     if (!form.booking_id && !form.is_unofficial) {
@@ -620,19 +623,19 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
     try {
       setSaving(true);
 
-      const printingCostPayload = form.printing_cost.map((e) => ({
-        cost: parseFloat(e.cost) || 0,
-        from_month: e.from_month || '',
-        to_month: e.to_month || '',
-      }));
+      const printingCostPayload = form.billboards.map(b => ({
+        cost: parseFloat(b.printing_cost) || 0,
+        from_month: b.printing_month || form.period[0] || '',
+        to_month: ''
+      })).filter(p => p.cost > 0);
 
       const payload = {
-        client_id: form.client_id,
+        client_id: form.client_id || null,
         client_name: form.client_name,
-        media_type: form.media_type,
-        media_used: form.media_used,
-        reference: form.reference,
-        media_location: form.media_location,
+        reference: JSON.stringify(form.billboards),
+        media_type: form.billboards[0].type || '',
+        media_used: '', // not heavily used
+        media_location: form.billboards[0].location || '',
         frequency: form.frequency === '' ? null : Number(form.frequency),
         period: form.period,
         printing_cost: printingCostPayload,
@@ -787,7 +790,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             inputValue={clientQuery}
             onInputChange={(value) => {
               setClientQuery(value);
-              setForm((prev) => ({ ...prev, client_name: '', client_id: '' }));
+              setForm((prev) => ({ ...prev, client_name: value, client_id: '' }));
             }}
             options={clientOptions}
             placeholder="Search business names..."
@@ -807,69 +810,126 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             <input type="text" value={form.client_id} disabled placeholder="Assigned from selected client" />
           </div>
 
-          {/* ── Billboard ── */}
-          <SearchableSelect
-            label="Reference (billboard ID)"
-            inputValue={billboardQuery}
-            onInputChange={(value) => {
-              setBillboardQuery(value);
-              setForm((prev) => ({ ...prev, reference: '', billboard_price: '' }));
-            }}
-            options={billboardOptions}
-            placeholder="Search billboard IDs..."
-            required
-            onSelect={(option) => {
-              const board = option.board;
-              const price = getBillboardPrice(board);
-              setBillboardQuery(String(board.billboard_id));
-              setForm((prev) => {
-                const woCalc = autoCalcWoPrinting(price, prev.period);
-                return {
-                  ...prev,
-                  reference: board.billboard_id,
-                  media_location: board.location || prev.media_location,
-                  media_type: board.media_type || prev.media_type,
-                  billboard_price: price,
-                  total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
-                  total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prev.printing_cost),
-                };
-              });
-            }}
-          />
-
-          <div className="form-field">
-            <label>Media location</label>
-            <input
-              type="text"
-              value={form.media_location}
-              onChange={(e) => setForm((prev) => ({ ...prev, media_location: e.target.value }))}
-              placeholder="Filled from the billboard, editable"
-            />
-          </div>
-
-          <div className="form-field">
-            <label>Media type</label>
-            <input
-              type="text"
-              value={form.media_type}
-              onChange={(e) => setForm((prev) => ({ ...prev, media_type: e.target.value }))}
-              placeholder="e.g. Outdoor Unipole"
-              required
-            />
-          </div>
-
-          <div className="form-field">
-            <label>Media used</label>
-            <select
-              value={form.media_used}
-              onChange={(e) => setForm((prev) => ({ ...prev, media_used: e.target.value }))}
-              required
-            >
-              <option value="">Select media used</option>
-              {MEDIA_USED_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
+          {/* ── Billboards List ── */}
+          <div className="form-field full-width">
+            <label>Selected Billboards</label>
+            <div className="printing-cost-list">
+              {form.billboards.length === 0 && (
+                <p className="printing-cost-empty">No billboards added. Select one below.</p>
+              )}
+              {form.billboards.map((b, index) => (
+                <div key={index} className="printing-cost-row" style={{ alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div className="printing-cost-field" style={{ flex: '2 1 200px' }}>
+                    <label className="printing-cost-sublabel">Billboard ID</label>
+                    <input type="text" value={b.billboard_id} disabled />
+                  </div>
+                  <div className="printing-cost-field" style={{ flex: '1 1 100px' }}>
+                    <label className="printing-cost-sublabel">Price / Mo ($)</label>
+                    <input 
+                      type="number" 
+                      value={b.monthly_price} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm(prev => {
+                          const newB = [...prev.billboards];
+                          newB[index].monthly_price = val;
+                          const woCalc = autoCalcWoPrinting(newB, prev.period);
+                          return {
+                            ...prev,
+                            billboards: newB,
+                            total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
+                            total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, newB)
+                          };
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="printing-cost-field" style={{ flex: '1 1 100px' }}>
+                    <label className="printing-cost-sublabel">Print Cost ($)</label>
+                    <input 
+                      type="number" 
+                      value={b.printing_cost} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm(prev => {
+                          const newB = [...prev.billboards];
+                          newB[index].printing_cost = val;
+                          return {
+                            ...prev,
+                            billboards: newB,
+                            total_cost_with_printing: recalcWithPrinting(prev.total_cost_wo_printing, newB)
+                          };
+                        });
+                      }}
+                    />
+                  </div>
+                  <div className="printing-cost-field" style={{ flex: '1 1 120px' }}>
+                    <label className="printing-cost-sublabel">Print Month</label>
+                    <select 
+                      value={b.printing_month} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm(prev => {
+                          const newB = [...prev.billboards];
+                          newB[index].printing_month = val;
+                          return { ...prev, billboards: newB };
+                        });
+                      }}
+                    >
+                      <option value="">(Default: First)</option>
+                      {form.period.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  </div>
+                  <button
+                    type="button"
+                    className="remove-print-period-btn"
+                    onClick={() => {
+                      setForm(prev => {
+                        const newB = prev.billboards.filter((_, i) => i !== index);
+                        const woCalc = autoCalcWoPrinting(newB, prev.period);
+                        return {
+                          ...prev,
+                          billboards: newB,
+                          total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
+                          total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, newB)
+                        };
+                      });
+                    }}
+                    title="Remove billboard"
+                  >
+                    ✕
+                  </button>
+                </div>
               ))}
-            </select>
+            </div>
+
+            <div style={{ marginTop: '10px' }}>
+            <BillboardSearchPicker
+                allBillboards={billboards}
+                required={form.billboards.length === 0}
+                onAdd={(board) => {
+                  const price = getBillboardPrice(board);
+                  setForm((prev) => {
+                    const newBillboard = {
+                      billboard_id: board.billboard_id,
+                      location: board.location || '',
+                      type: board.media_type || '',
+                      monthly_price: price || 0,
+                      printing_cost: 0,
+                      printing_month: prev.period[0] || ''
+                    };
+                    const newBillboards = [...prev.billboards, newBillboard];
+                    const woCalc = autoCalcWoPrinting(newBillboards, prev.period);
+                    return {
+                      ...prev,
+                      billboards: newBillboards,
+                      total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
+                      total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, newBillboards),
+                    };
+                  });
+                }}
+              />
+            </div>
           </div>
 
           {/* ── Period ── */}
@@ -877,12 +937,12 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             selectedMonths={form.period}
             onChange={(selected) => {
               setForm((prev) => {
-                const woCalc = autoCalcWoPrinting(prev.billboard_price, selected);
+                const woCalc = autoCalcWoPrinting(prev.billboards, selected);
                 return {
                   ...prev,
                   period: selected,
                   total_cost_wo_printing: woCalc || prev.total_cost_wo_printing,
-                  total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prev.printing_cost),
+                  total_cost_with_printing: recalcWithPrinting(woCalc || prev.total_cost_wo_printing, prev.billboards),
                 };
               });
             }}
@@ -899,27 +959,11 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             />
           </div>
 
-          {/* ── Printing cost list ── */}
-          <PrintingCostList
-            entries={form.printing_cost}
-            onChange={(updated) => {
-              setForm((prev) => {
-                const wo = parseFloat(prev.total_cost_wo_printing) || 0;
-                const printing = totalPrintingCost(updated);
-                return {
-                  ...prev,
-                  printing_cost: updated,
-                  total_cost_with_printing: (wo + printing).toFixed(2),
-                };
-              });
-            }}
-          />
-
           {/* ── Total cost w/o printing (auto-calc, editable) ── */}
           <div className="form-field">
             <label>
               Total cost w/o printing
-              {form.billboard_price && form.period.length > 0 && (
+              {form.billboards.length > 0 && form.period.length > 0 && (
                 <span className="cost-auto-badge">AUTO</span>
               )}
             </label>
@@ -933,14 +977,14 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
                 setForm((prev) => ({
                   ...prev,
                   total_cost_wo_printing: val,
-                  total_cost_with_printing: recalcWithPrinting(val, prev.printing_cost),
+                  total_cost_with_printing: recalcWithPrinting(val, prev.billboards),
                 }));
               }}
               required
             />
-            {form.billboard_price && form.period.length > 0 && (
+            {form.billboards.length > 0 && form.period.length > 0 && (
               <span className="form-hint">
-                Auto-calculated: {money(form.billboard_price)} × {form.period.length} month{form.period.length !== 1 ? 's' : ''}. Still editable.
+                Auto-calculated. Still editable.
               </span>
             )}
           </div>
@@ -950,7 +994,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             <label>Total printing cost (derived)</label>
             <input
               type="text"
-              value={form.printing_cost.length > 0 ? money(derivedPrintingTotal) : '—'}
+              value={money(totalPrintingCost(form.billboards))}
               disabled
             />
             <span className="form-hint">Sum of all printing cost entries above.</span>
@@ -1089,7 +1133,7 @@ const Quotations = ({ startInCreate = false, prefillBookingId = null, onCreateCo
             return (
               <div key={item.id} className="quotation-card">
                 <div className="quotation-card-header">
-                  <h3 className="quotation-ref">{item.reference || 'No reference'}</h3>
+                  <h3 className="quotation-ref">{businessName + "'s Ad Campaign" || 'No reference'}</h3>
                   <span className="quotation-date">{formatDate(item.created_at)}</span>
                 </div>
                 <div className="quotation-detail">

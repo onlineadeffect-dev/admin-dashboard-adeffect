@@ -28,12 +28,17 @@ const Bookings = () => {
       try {
         setLoading(true);
         
-        // Fetch bookings
-        const { data: bookingsData, error: bookingsError } = await supabase
-          .from('bookings')
-          .select('*');
+        // Fetch bookings and items
+        const [bookingsRes, itemsRes] = await Promise.all([
+          supabase.from('bookings').select('*'),
+          supabase.from('booking_items').select('*')
+        ]);
           
-        if (bookingsError) throw bookingsError;
+        if (bookingsRes.error) throw bookingsRes.error;
+        if (itemsRes.error) throw itemsRes.error;
+
+        const bookingsData = bookingsRes.data || [];
+        const itemsData = itemsRes.data || [];
 
         // Fetch users for business names
         const { data: usersData, error: usersError } = await supabase
@@ -49,10 +54,17 @@ const Bookings = () => {
         });
 
         // Combine data
-        const enrichedBookings = bookingsData.map(booking => ({
-          ...booking,
-          business_name: booking.is_offline_booking == false ? userMap[booking.user_id] || 'Unknown Business' : booking.offline_business_name
-        }));
+        const enrichedBookings = bookingsData.map(booking => {
+          const items = itemsData.filter(i => String(i.booking_id) === String(booking.booking_id));
+          const billboard_ids = items.map(i => i.billboard_id).join(', ');
+          
+          return {
+            ...booking,
+            items,
+            billboard_ids,
+            business_name: booking.is_offline_booking == false ? userMap[booking.user_id] || 'Unknown Business' : booking.offline_business_name
+          };
+        });
 
         setBookings(enrichedBookings);
       } catch (error) {
@@ -91,7 +103,7 @@ const Bookings = () => {
     // Search filter
     const searchLower = searchQuery.toLowerCase();
     const matchesSearch = 
-      (booking.billboard_id && booking.billboard_id.toString().toLowerCase().includes(searchLower)) ||
+      ((booking.billboard_ids || booking.billboard_id) && (booking.billboard_ids || booking.billboard_id).toString().toLowerCase().includes(searchLower)) ||
       (booking.business_name && booking.business_name.toLowerCase().includes(searchLower));
 
     // Status filter
@@ -158,7 +170,7 @@ const Bookings = () => {
           {filteredBookings.map(booking => (
             <div key={booking.booking_id} className="booking-card">
               <div className="booking-header">
-                <h3 className="billboard-id">{booking.billboard_id || 'No ID'}</h3>
+                <h3 className="billboard-id">{booking.billboard_ids || booking.billboard_id || 'No ID'}</h3>
                 <span className={`status-badge ${booking.is_active ? 'active' : 'inactive'}`}>
                   {booking.is_active ? 'Active' : 'Inactive'}
                 </span>

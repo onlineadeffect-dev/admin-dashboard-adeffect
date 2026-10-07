@@ -218,47 +218,37 @@ export async function downloadQuotationPdf(quotationData) {
       : quotationData.period
         ? quotationData.period.split(",").map((s) => s.trim()).filter(Boolean)
         : [];
+    const numMonths = period.length || 1;
 
-    // Normalise printing_cost to array
-    let printingCostList = [];
-    if (Array.isArray(quotationData.printing_cost)) {
-      printingCostList = quotationData.printing_cost;
-    } else if (
-      quotationData.printing_cost &&
-      typeof quotationData.printing_cost === "object"
-    ) {
-      printingCostList = [quotationData.printing_cost];
-    } else if (
-      typeof quotationData.printing_cost === "number" &&
-      quotationData.printing_cost > 0
-    ) {
-      // Legacy numeric value
-      printingCostList = [{ cost: quotationData.printing_cost, from_month: "", to_month: "" }];
+    let billboards = [];
+    try {
+      const parsed = JSON.parse(quotationData.reference);
+      if (Array.isArray(parsed)) billboards = parsed;
+    } catch (e) {
+      // fallback
+      billboards = [{
+        billboard_id: quotationData.reference,
+        location: quotationData.media_location,
+        type: quotationData.media_type,
+        monthly_price: (parseFloat(quotationData.total_cost_wo_printing) || 0) / numMonths,
+        printing_cost: quotationData.printing_cost && quotationData.printing_cost[0] ? (parseFloat(quotationData.printing_cost[0].cost) || 0) : 0,
+        printing_month: quotationData.printing_cost && quotationData.printing_cost[0] ? quotationData.printing_cost[0].from_month : period[0]
+      }];
     }
 
-    const totalWo = parseFloat(quotationData.total_cost_wo_printing) || 0;
-    const numMonths = period.length || 1;
-    const costPerMonth = totalWo / numMonths;
-    const totalPrinting = totalPrintingCost(printingCostList);
-    const grandTotal = totalWo + totalPrinting;
+    const isMultiple = billboards.length > 1;
 
-    // Per-month breakdown rows
-    const monthRows = period.map((month) => {
-      const printCost = printingCostForMonth(printingCostList, month, period);
-      return {
-        month,
-        billboardCost: costPerMonth,
-        printingCost: printCost,
-        totalWithPrinting: costPerMonth + printCost,
-      };
-    });
+    // Totals
+    const sumMonthly = billboards.reduce((acc, b) => acc + (parseFloat(b.monthly_price) || 0), 0);
+    const sumWo = sumMonthly * numMonths;
+    const sumPrinting = billboards.reduce((acc, b) => acc + (parseFloat(b.printing_cost) || 0), 0);
+    const grandTotal = sumWo + sumPrinting;
 
     // ── Document setup ──────────────────────────────────────────────────────
     const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     const pageH = doc.internal.pageSize.getHeight();
     let curY = 18;
 
-    // Helper: check if we need a new page
     const ensureSpace = (needed) => {
       if (curY + needed > pageH - 14) {
         doc.addPage();
@@ -314,7 +304,7 @@ export async function downloadQuotationPdf(quotationData) {
     curY += 8;
 
     // ── CLIENT & CAMPAIGN INFO BOX ──────────────────────────────────────────
-    const infoBoxW = CONTENT_W; // 174mm
+    const infoBoxW = CONTENT_W; 
     const infoBoxH = 26;
 
     setFill(doc, GREY_LIGHT);
@@ -350,22 +340,14 @@ export async function downloadQuotationPdf(quotationData) {
 
     doc.setFontSize(10.5);
     setColor(doc, RED);
-    doc.text(
-      quotationData.reference ? `Billboard ${quotationData.reference}` : "Billboard Ref",
-      rightColX,
-      infoY + 5,
-      { maxWidth: colMaxW }
-    );
+    const refText = isMultiple ? "Multiple Billboard Sites" : (`Billboard ${billboards[0]?.billboard_id || "Ref"}`);
+    doc.text(refText, rightColX, infoY + 5, { maxWidth: colMaxW });
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
     setColor(doc, [120, 120, 120]);
-    doc.text(
-      quotationData.media_location ? `Location: ${quotationData.media_location}` : "Location: N/A",
-      rightColX,
-      infoY + 10,
-      { maxWidth: colMaxW }
-    );
+    const subRefText = isMultiple ? (`Pricing: ${period.length} month`) : (`Location: ${billboards[0]?.location || "N/A"}`);
+    doc.text(subRefText, rightColX, infoY + 10, { maxWidth: colMaxW });
 
     curY += infoBoxH + 8;
 
@@ -380,68 +362,82 @@ export async function downloadQuotationPdf(quotationData) {
     doc.setFontSize(8.5);
     setColor(doc, BLACK);
     const mediaLine = [
-      quotationData.media_type ? `Type: ${quotationData.media_type}` : null,
-      quotationData.media_used ? `Used: ${quotationData.media_used}` : null,
-      quotationData.frequency != null ? `Frequency: ${quotationData.frequency}` : null,
-    ]
-      .filter(Boolean)
-      .join("    |    ");
+      quotationData.media_type ? `Type: ${quotationData.media_type}` : (isMultiple ? 'Type: outdoor' : null),
+      isMultiple ? 'Used: billboard' : (quotationData.media_used ? `Used: ${quotationData.media_used}` : null),
+      isMultiple ? `Duration: ${period.length} month` : (quotationData.frequency != null ? `Frequency: ${quotationData.frequency}` : null),
+    ].filter(bool => bool).join("    |    ");
     doc.text(mediaLine || "N/A", INNER_LEFT, curY, { maxWidth: CONTENT_W });
     curY += 10;
 
-    // ── SECTION 1: PER-MONTH BILLBOARD COST BREAKDOWN ───────────────────────
-    ensureSpace(14 + (period.length + 1) * 9 + 10);
+    // ── TABLE ───────────────────────────────────────────────────────────────
+    if (isMultiple) {
+      ensureSpace(14 + (billboards.length + 1) * 9 + 10);
+      // Multiple Billboards Table
+      const bbColWidths = [42, 44, 44, 44];
+      const bbHeaders = ["Billboard Reference", "Billboard Cost / Mo", "Printing Cost", "Total w/ Printing"];
+      const bbAligns = ["left", "right", "right", "right"];
+      
+      const bbRows = billboards.map((b) => {
+        const costMo = parseFloat(b.monthly_price) || 0;
+        const printCost = parseFloat(b.printing_cost) || 0;
+        const total = (costMo * numMonths) + printCost;
+        return [
+          b.billboard_id || '',
+          `$ ${formatMoney(costMo)}`,
+          printCost > 0 ? `$ ${formatMoney(printCost)}` : "$ 0.00",
+          `$ ${formatMoney(total)}`
+        ];
+      });
 
-    curY = sectionHeading(doc, "Billboard Cost Breakdown by Month", curY);
+      bbRows.push([
+        "TOTAL",
+        `$ ${formatMoney(sumMonthly * numMonths)}`,
+        sumPrinting > 0 ? `$ ${formatMoney(sumPrinting)}` : "$ 0.00",
+        `$ ${formatMoney(grandTotal)}`,
+      ]);
 
-    // colWidths sum = 42 + 44 + 44 + 44 = 174mm (matches CONTENT_W exactly)
-    const bbColWidths = [42, 44, 44, 44];
-    const bbHeaders = ["Month", "Billboard Cost / Mo", "Printing Cost", "Total w/ Printing"];
-    const bbAligns = ["left", "right", "right", "right"];
+      curY = drawTable(doc, INNER_LEFT, curY, bbColWidths, bbHeaders, bbRows, bbAligns, bbAligns, true);
+    } else {
+      // Single Billboard Table
+      ensureSpace(14 + (period.length + 1) * 9 + 10);
+      curY = sectionHeading(doc, "Billboard Cost Breakdown by Month", curY);
 
-    const bbRows = monthRows.map((r) => [
-      r.month,
-      `$ ${formatMoney(r.billboardCost)}`,
-      r.printingCost > 0 ? `$ ${formatMoney(r.printingCost)}` : "$ 0.00",
-      `$ ${formatMoney(r.totalWithPrinting)}`,
-    ]);
+      const b = billboards[0] || {};
+      const costMo = parseFloat(b.monthly_price) || 0;
+      const printCost = parseFloat(b.printing_cost) || 0;
+      const printMonth = b.printing_month || period[0];
 
-    // Totals row
-    bbRows.push([
-      "TOTAL",
-      `$ ${formatMoney(totalWo)}`,
-      totalPrinting > 0 ? `$ ${formatMoney(totalPrinting)}` : "$ 0.00",
-      `$ ${formatMoney(grandTotal)}`,
-    ]);
+      const bbColWidths = [42, 44, 44, 44];
+      const bbHeaders = ["Month", "Billboard Cost / Mo", "Printing Cost", "Total w/ Printing"];
+      const bbAligns = ["left", "right", "right", "right"];
 
-    curY = drawTable(
-      doc,
-      INNER_LEFT,
-      curY,
-      bbColWidths,
-      bbHeaders,
-      bbRows,
-      bbAligns,
-      bbAligns,
-      true // last row bold
-    );
+      const bbRows = period.map(month => {
+        const pc = (month === printMonth) ? printCost : 0;
+        return [
+          month,
+          `$ ${formatMoney(costMo)}`,
+          pc > 0 ? `$ ${formatMoney(pc)}` : "$ 0.00",
+          `$ ${formatMoney(costMo + pc)}`
+        ];
+      });
+
+      bbRows.push([
+        "TOTAL",
+        `$ ${formatMoney(costMo * numMonths)}`,
+        printCost > 0 ? `$ ${formatMoney(printCost)}` : "$ 0.00",
+        `$ ${formatMoney(grandTotal)}`,
+      ]);
+
+      curY = drawTable(doc, INNER_LEFT, curY, bbColWidths, bbHeaders, bbRows, bbAligns, bbAligns, true);
+    }
 
     curY += 10;
 
     doc.setFont("helvetica", "italic");
     doc.setFontSize(8);
     setColor(doc, BLACK);
-    //doc.text(
-      //"This quotation is valid for 30 days from the date of issue. All amounts are in USD.",
-      //INNER_LEFT,
-      //curY
-    //);
     curY += 4;
-    doc.text(
-      "Note: Subject to VAT",
-      INNER_LEFT,
-      curY
-    );
+    doc.text("Note: Subject to VAT", INNER_LEFT, curY);
 
     curY += 10;
 
@@ -453,18 +449,8 @@ export async function downloadQuotationPdf(quotationData) {
     doc.setFont("helvetica", "italic");
     doc.setFontSize(7.5);
     setColor(doc, [160, 160, 160]);
-    //doc.text(
-      //"This quotation is valid for 30 days from the date of issue. All amounts are in USD.",
-      //INNER_LEFT,
-      //curY
-    //);
     curY += 4;
-    doc.text(
-      "adeffect | North Lebanon | Outdoor Advertising",
-      INNER_LEFT,
-      curY
-    );
-
+    doc.text("adeffect | North Lebanon | Outdoor Advertising", INNER_LEFT, curY);
 
     // ── Save & export ───────────────────────────────────────────────────────
     const fileName = `quotation_${quotationData.booking_id || quotationData.id || Date.now()}.pdf`;

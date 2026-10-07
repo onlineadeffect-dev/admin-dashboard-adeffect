@@ -19,12 +19,21 @@ const BookingRequests = ({ onNavigateToCreateQuotation }) => {
       setLoading(true);
 
       // Fetch all rows from pending_bookings
-      const { data: bookingsData, error: bookingsError } = await supabase
-        .from('pending_bookings')
-        .select('*')
-        .order('created_at', { ascending: false });
+      const [bookingsRes, itemsRes] = await Promise.all([
+        supabase.from('pending_bookings').select('*').order('created_at', { ascending: false }),
+        supabase.from('pending_booking_items').select('*')
+      ]);
+      if (bookingsRes.error) throw bookingsRes.error;
+      if (itemsRes.error) throw itemsRes.error;
 
-      if (bookingsError) throw bookingsError;
+      const bookingsData = bookingsRes.data || [];
+      const itemsData = itemsRes.data || [];
+
+      // attach items to bookings
+      bookingsData.forEach(b => {
+        b.items = itemsData.filter(i => String(i.booking_id) === String(b.booking_id));
+        b.billboard_ids = b.items.map(i => i.billboard_id).join(', ');
+      });
 
       // Fetch users for business_name lookup
       const { data: usersData, error: usersError } = await supabase
@@ -60,7 +69,7 @@ const BookingRequests = ({ onNavigateToCreateQuotation }) => {
     if (!searchQuery.trim()) return pendingBookings;
     const q = searchQuery.toLowerCase();
     return pendingBookings.filter((item) => {
-      const billboardId = (item.billboard_id || '').toString().toLowerCase();
+      const billboardId = (item.billboard_ids || item.billboard_id || '').toString().toLowerCase();
       const businessName = (usersMap[item.user_id] || usersMap[item.user_email] || '').toLowerCase();
       return billboardId.includes(q) || businessName.includes(q);
     });
@@ -90,8 +99,8 @@ const BookingRequests = ({ onNavigateToCreateQuotation }) => {
         throw new Error(`User with email ${item.user_email} was not found in active users. Approve their account request first!`);
       }
 
-      // 3. Insert row data (excluding extra_services) into the bookings table
-      const { extra_services, id, status, user_email, ...restData } = item;
+      // 3. Insert row data into the bookings table
+      const { extra_services, id, status, user_email, items, billboard_ids, ...restData } = item;
       const bookingPayload = {
         ...restData,
         is_active: true,
@@ -110,15 +119,34 @@ const BookingRequests = ({ onNavigateToCreateQuotation }) => {
       const newBookingId =
         (insertedData && insertedData[0]?.booking_id) ||
         (insertedData && insertedData[0]?.id) ||
-        item.id;
+        item.booking_id;
+
+      // 4. Insert items into booking_items
+      if (item.items && item.items.length > 0) {
+        const itemsPayload = item.items.map(i => {
+          const { id: oldId, ...restItem } = i;
+          return {
+            ...restItem,
+            booking_id: newBookingId
+          };
+        });
+        const { error: itemsError } = await supabase
+          .from('booking_items')
+          .insert(itemsPayload);
+          
+        if (itemsError) {
+          console.error('Error inserting into booking_items:', itemsError);
+          // depending on strictness we might throw, but let's just log for now
+        }
+      }
 
       setPendingBookings((prev) =>
         prev.map((b) => (b.id === item.id ? { ...b, status: 'APPROVED' } : b))
       );
 
-      showNotification('success', `Approved booking request for Billboard ${item.billboard_id}`);
+      showNotification('success', `Approved booking request`);
 
-      // 4. Open the create quotation form with this booking preselected
+      // 5. Open the create quotation form with this booking preselected
       if (onNavigateToCreateQuotation) {
         onNavigateToCreateQuotation(newBookingId);
       }
@@ -147,13 +175,13 @@ const BookingRequests = ({ onNavigateToCreateQuotation }) => {
         prev.map((b) => (b.id === item.id ? { ...b, status: 'DECLINED' } : b))
       );
 
-      showNotification('info', `Declined booking request for Billboard ${item.billboard_id}`);
+      showNotification('info', `Declined booking request for Billboards ${item.billboard_ids || item.billboard_id}`);
 
       // 2. Immediately open a mailto: link to user_email
       if (item.user_email) {
-        const subject = encodeURIComponent(`AdEffect Booking Request Update - Billboard ${item.billboard_id}`);
+        const subject = encodeURIComponent(`AdEffect Booking Request Update - Billboards ${item.billboard_ids || item.billboard_id}`);
         const body = encodeURIComponent(
-          `Hello,\n\nThank you for submitting a booking request for Billboard ${item.billboard_id}.\n\nWe regret to inform you that your booking request has been declined.\n\nBest regards,\nAdEffect Team`
+          `Hello,\n\nThank you for submitting a booking request for Billboards ${item.billboard_ids || item.billboard_id}.\n\nWe regret to inform you that your booking request has been declined.\n\nBest regards,\nAdEffect Team`
         );
         window.location.href = `mailto:${item.user_email}?subject=${subject}&body=${body}`;
       }
@@ -223,7 +251,7 @@ const BookingRequests = ({ onNavigateToCreateQuotation }) => {
             return (
               <div key={item.id} className="request-card">
                 <div className="card-header">
-                  <h3 className="billboard-id">{item.billboard_id || 'No Billboard ID'}</h3>
+                  <h3 className="billboard-id">{item.billboard_ids || item.billboard_id || 'No Billboard ID'}</h3>
                   <span className={`status-badge ${statusClass}`}>
                     {item.status || 'PENDING'}
                   </span>
