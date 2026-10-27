@@ -11,6 +11,7 @@ import Billboards from '../pages/Billboards';
 
 import Availability from '../pages/Availability';
 import Careers from '../pages/Careers';
+import Statistics from '../pages/Statistics';
 
 const Dashboard = ({ onLogout }) => {
   const [activePage, setActivePage] = useState('dashboard');
@@ -29,6 +30,7 @@ const Dashboard = ({ onLogout }) => {
 
   const navItems = [
     { id: 'dashboard', label: 'DASHBOARD' },
+    //{ id: 'statistics', label: 'STATISTICS' },
     { id: 'availability', label: 'AVAILABILITY' },
     { id: 'billboards', label: 'BILLBOARDS' },
     { id: 'clients', label: 'CLIENTS/USERS' },
@@ -43,6 +45,8 @@ const Dashboard = ({ onLogout }) => {
     switch (activePage) {
       case 'dashboard':
         return <DashboardHome />;
+      case 'statistics':
+        return <Statistics />;
       case 'availability':
         return <Availability />;
       case 'clients':
